@@ -207,7 +207,7 @@ async def message_handler(event):
         elif event_data.get("event") == "posted":
             post = json.loads(event_data["data"]["post"])
             sender_id = post["user_id"]
-            if sender_id != driver.client.userid and sender_id != mattermost_ignore_sender_id:
+            if sender_id == driver.client.userid or sender_id == mattermost_ignore_sender_id:
                 logging.info("Ignoring post from a ignored sender ID")
                 return
 
