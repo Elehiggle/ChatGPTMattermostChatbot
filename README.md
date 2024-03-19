@@ -93,6 +93,10 @@ DALLE-3 image generation support will come soon.
 
 Please note that the monkey patch in the code is necessary due to some SSL errors that occur because of a mistake within the `mattermostdriver` library. The patch ensures that the chatbot can establish a secure connection with the Mattermost server.
 
+## Related Projects
+
+[Anthropic Claude 3 Bot](https://github.com/Elehiggle/Claude3MattermostChatbot)
+
 ## Contributing
 
 Contributions are welcome! If you find any issues or have suggestions for improvements, please open an issue or submit a pull request.
