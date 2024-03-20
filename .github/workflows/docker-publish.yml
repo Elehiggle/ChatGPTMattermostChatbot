@@ -26,8 +26,7 @@ jobs:
       run: echo "REPO_NAME=$(echo ${{ github.repository }} | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
 
     - name: Get short SHA
-      id: short_sha
-      run: echo "::set-output name=sha::$(git rev-parse --short HEAD)"
+      run: echo "SHORT_SHA=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
 
     - name: Build and push Docker image
       uses: docker/build-push-action@v5
@@ -37,4 +36,4 @@ jobs:
         tags: |
           ${{ steps.meta.outputs.tags }}
           ghcr.io/${{ env.REPO_NAME }}:latest
-          ghcr.io/${{ env.REPO_NAME }}:${{ steps.short_sha.outputs.sha }}
+          ghcr.io/${{ env.REPO_NAME }}:${{ env.SHORT_SHA }}
