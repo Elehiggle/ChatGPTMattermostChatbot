@@ -44,23 +44,23 @@ python3.8 -m pip install openai mattermostdriver ssl certifi beautifulsoup4 pill
 
 3. Set the following environment variables with your own values:
 
-| Parameter | Description |
-| --- | --- |
-| `AI_API_KEY` | Your OpenAI API key |
-| `AI_MODEL` | The OpenAI model to use. Default: "gpt-4-vision-preview" |
-| `AI_TIMEOUT` | The timeout for the AI API call in seconds. Default: "120" |
-| `MAX_RESPONSE_SIZE_MB` | The maximum size of the website content to extract (in megabytes). Default: "100" |
-| `MAX_TOKENS` | The maximum number of tokens to generate in the response. Default: "4096" (max) |
-| `TEMPERATURE` | The temperature value for controlling the randomness of the generated responses (0.0 = analytical, 1.0 = fully random). Default: "0.15" |
-| `IMAGE_SIZE` | The image size for image generation. Default: "1024x1024" (see docs for allowed types) |
-| `IMAGE_QUALITY` | The image quality for image generation. Default: "standard" (also: "hd") |
-| `IMAGE_STYLE` | The image style for image generation. Default: "vivid" (also: "natural") |
-| `MATTERMOST_URL` | The URL of your Mattermost server |
+| Parameter | Description                                                                                                                                                          |
+| --- |----------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `AI_API_KEY` | Your OpenAI API key                                                                                                                                                  |
+| `AI_MODEL` | The OpenAI model to use. Default: "gpt-4-vision-preview"                                                                                                             |
+| `AI_TIMEOUT` | The timeout for the AI API call in seconds. Default: "120"                                                                                                           |
+| `MAX_RESPONSE_SIZE_MB` | The maximum size of the website content to extract (in megabytes). Default: "100"                                                                                    |
+| `MAX_TOKENS` | The maximum number of tokens to generate in the response. Default: "4096" (max)                                                                                      |
+| `TEMPERATURE` | The temperature value for controlling the randomness of the generated responses (0.0 = analytical, 1.0 = fully random). Default: "1"                                 |
+| `IMAGE_SIZE` | The image size for image generation. Default: "1024x1024" (see docs for allowed types)                                                                               |
+| `IMAGE_QUALITY` | The image quality for image generation. Default: "standard" (also: "hd")                                                                                             |
+| `IMAGE_STYLE` | The image style for image generation. Default: "vivid" (also: "natural")                                                                                             |
+| `MATTERMOST_URL` | The URL of your Mattermost server                                                                                                                                    |
 | `MATTERMOST_TOKEN` | The bot token (alternatively personal access token) with relevant permissions created specifically for the chatbot. Don't forget to add the bot account to the team. |
-| `MATTERMOST_USERNAME` | The username of the dedicated Mattermost user account for the chatbot (if using username/password login) |
-| `MATTERMOST_PASSWORD` | The password of the dedicated Mattermost user account for the chatbot (if using username/password login) |
-| `MATTERMOST_MFA_TOKEN` | The MFA token of the dedicated Mattermost user account for the chatbot (if using MFA) |
-| `MATTERMOST_IGNORE_SENDER_ID` | The user ID of a user to ignore (optional, useful if you have multiple chatbots to prevent endless loops) |
+| `MATTERMOST_USERNAME` | The username of the dedicated Mattermost user account for the chatbot (if using username/password login)                                                             |
+| `MATTERMOST_PASSWORD` | The password of the dedicated Mattermost user account for the chatbot (if using username/password login)                                                             |
+| `MATTERMOST_MFA_TOKEN` | The MFA token of the dedicated Mattermost user account for the chatbot (if using MFA)                                                                                |
+| `MATTERMOST_IGNORE_SENDER_ID` | The user ID of a user to ignore (optional, useful if you have multiple chatbots to prevent endless loops)                                                            |
 
 ## Usage
 
@@ -83,7 +83,7 @@ You can also run the chatbot using Docker. Use the following command to run the 
 docker run -d --name chatbotgpt \
   -e AI_API_KEY="your_ai_api_key" \
   -e AI_MODEL="gpt-4-vision-preview" \
-  -e MATTERMOST_URL="your_mattermost_url" \
+  -e MATTERMOST_URL="mattermostinstance.example.com" \
   -e MATTERMOST_TOKEN="your_mattermost_token" \
   -e MAX_RESPONSE_SIZE_MB="100" \
   -e MAX_TOKENS="4096" \
@@ -93,7 +93,7 @@ docker run -d --name chatbotgpt \
 
 ### Using DALL-E-3 image generation
 
-![Mattermost chat with bot example](./dalle3.png)
+![Mattermost DALL-E-3 chat with bot example](./dalle3.png)
 
 The bot listens to "draw", and if you send "#draw", it will try to use your prompt as is without any modification by the API.
 

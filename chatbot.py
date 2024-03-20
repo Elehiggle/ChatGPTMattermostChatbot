@@ -41,7 +41,7 @@ api_key = os.environ["AI_API_KEY"]
 model = os.getenv("AI_MODEL", "gpt-4-vision-preview")
 timeout = int(os.getenv("AI_TIMEOUT", "120"))
 max_tokens = int(os.getenv("MAX_TOKENS", "4096"))
-temperature = float(os.getenv("TEMPERATURE", "0.15"))
+temperature = float(os.getenv("TEMPERATURE", "1"))
 
 image_size = os.getenv("IMAGE_SIZE", "1024x1024")
 image_quality = os.getenv("IMAGE_QUALITY", "standard")
@@ -202,33 +202,28 @@ def handle_image_generation(last_message, messages, channel_id, root_id, sender_
 
 
 def handle_text_generation(last_message, messages, channel_id, root_id, sender_name, links):
-    try:
-        # Send the messages to the OpenAI API
-        response = ai_client.chat.completions.create(
-            model=model,
-            max_tokens=max_tokens,
-            messages=[
-                {"role": "system", "content": get_system_instructions()},
-                *messages
-            ],
-            timeout=timeout,
-            temperature=temperature
-        )
+    # Send the messages to the AI API
+    response = ai_client.chat.completions.create(
+        model=model,
+        max_tokens=max_tokens,
+        messages=[
+            {"role": "system", "content": get_system_instructions()},
+            *messages
+        ],
+        timeout=timeout,
+        temperature=temperature
+    )
 
-        # Extract the text content
-        response_text = response.choices[0].message.content
+    # Extract the text content
+    response_text = response.choices[0].message.content
 
-        # Failsafe: Remove all blocks containing [CONTEXT
-        response_text = re.sub(r'(?s)\[CONTEXT.*?]', '', response_text).strip()
+    # Failsafe: Remove all blocks containing [CONTEXT
+    response_text = re.sub(r'(?s)\[CONTEXT.*?]', '', response_text).strip()
 
-        # Failsafe: Remove all input links from the response
-        for link in links:
-            response_text = response_text.replace(link, '')
-        response_text = response_text.strip()
-
-    except Exception as e:
-        logging.error(f"Error generating text: {str(e)} {traceback.format_exc()}")
-        response_text = "Sorry, an error occurred while generating the response."
+    # Failsafe: Remove all input links from the response
+    for link in links:
+        response_text = response_text.replace(link, '')
+    response_text = response_text.strip()
 
     # Send the API response back to the Mattermost channel as a reply to the thread or as a new thread
     driver.posts.create_post({
