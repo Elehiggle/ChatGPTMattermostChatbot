@@ -18,9 +18,10 @@ This project is a chatbot for Mattermost that integrates with the OpenAI API to 
 ## Prerequisites
 
 - Python 3.12 or just a server with [Docker](https://docs.docker.com/get-started/). _(you can get away with using lower Python versions if you use datetime.datetime.utcnow() instead of datetime.datetime.now(datetime.UTC))_
-- Mattermost server with API access
 - OpenAI API key
-- Personal access token or login/password for a dedicated Mattermost user account for the chatbot
+- Mattermost server with API access
+- Mattermost Bot token (alternatively personal access token or login/password for a dedicated Mattermost user account for the chatbot)
+- The bot account needs to be added to the team
 
 ## Installation
 
@@ -43,21 +44,23 @@ python3.8 -m pip install openai mattermostdriver ssl certifi beautifulsoup4 pill
 
 3. Set the following environment variables with your own values:
 
-- `AI_API_KEY`: Your OpenAI API key
-- `AI_MODEL`: The OpenAI model to use. Default: "gpt-4-vision-preview"
-- `AI_TIMEOUT`: The timeout for the AI API call in seconds. Default: "120"
-- `MAX_RESPONSE_SIZE_MB`: The maximum size of the website content to extract (in megabytes). Default: "100"
-- `MAX_TOKENS`: The maximum number of tokens to generate in the response. Default: "4096" (max)
-- `TEMPERATURE`: The temperature value for controlling the randomness of the generated responses (0.0 = analytical, 1.0 = fully random). Default: "0.15"
-- `IMAGE_SIZE`: The image size for image generation. Default: "1024x1024" (see docs for allowed types)
-- `IMAGE_QUALITY`: The image quality for image generation. Default: "standard" (also: "hd")
-- `IMAGE_STYLE`: The image style for image generation. Default: "vivid" (also: "natural")
-- `MATTERMOST_URL`: The URL of your Mattermost server
-- `MATTERMOST_TOKEN`: The bot token (alternatively personal access token) with relevant permissions created specifically for the chatbot.
-- `MATTERMOST_USERNAME`: The username of the dedicated Mattermost user account for the chatbot (if using username/password login)
-- `MATTERMOST_PASSWORD`: The password of the dedicated Mattermost user account for the chatbot (if using username/password login)
-- `MATTERMOST_MFA_TOKEN`: The MFA token of the dedicated Mattermost user account for the chatbot (if using MFA)
-- `MATTERMOST_IGNORE_SENDER_ID`: The user ID of a user to ignore (optional, useful if you have multiple chatbots to prevent endless loops)
+| Parameter | Description |
+| --- | --- |
+| `AI_API_KEY` | Your OpenAI API key |
+| `AI_MODEL` | The OpenAI model to use. Default: "gpt-4-vision-preview" |
+| `AI_TIMEOUT` | The timeout for the AI API call in seconds. Default: "120" |
+| `MAX_RESPONSE_SIZE_MB` | The maximum size of the website content to extract (in megabytes). Default: "100" |
+| `MAX_TOKENS` | The maximum number of tokens to generate in the response. Default: "4096" (max) |
+| `TEMPERATURE` | The temperature value for controlling the randomness of the generated responses (0.0 = analytical, 1.0 = fully random). Default: "0.15" |
+| `IMAGE_SIZE` | The image size for image generation. Default: "1024x1024" (see docs for allowed types) |
+| `IMAGE_QUALITY` | The image quality for image generation. Default: "standard" (also: "hd") |
+| `IMAGE_STYLE` | The image style for image generation. Default: "vivid" (also: "natural") |
+| `MATTERMOST_URL` | The URL of your Mattermost server |
+| `MATTERMOST_TOKEN` | The bot token (alternatively personal access token) with relevant permissions created specifically for the chatbot. Don't forget to add the bot account to the team. |
+| `MATTERMOST_USERNAME` | The username of the dedicated Mattermost user account for the chatbot (if using username/password login) |
+| `MATTERMOST_PASSWORD` | The password of the dedicated Mattermost user account for the chatbot (if using username/password login) |
+| `MATTERMOST_MFA_TOKEN` | The MFA token of the dedicated Mattermost user account for the chatbot (if using MFA) |
+| `MATTERMOST_IGNORE_SENDER_ID` | The user ID of a user to ignore (optional, useful if you have multiple chatbots to prevent endless loops) |
 
 ## Usage
 
@@ -96,7 +99,9 @@ The bot listens to "draw", and if you send "#draw", it will try to use your prom
 
 ## Known Issues
 
-While the chatbot works great for me, there might still be some bugs lurking inside. I have done my best to address them, but if you encounter any issues, please let me know!
+- Typing indicator is only sent to the channel, not the conversation thread. There is some issue I haven't figured out yet. I even prefer it this way, but mobile users can't see the channel while in a thread.
+
+Other than that, while the chatbot works great for me, there might still be some bugs lurking inside. I have done my best to address them, but if you encounter any issues, please let me know!
 
 ## Monkey Patch
 
