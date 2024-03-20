@@ -1,12 +1,12 @@
 import time
-
-import openai
 from mattermostdriver.driver import Driver
 import ssl
 import certifi
 import traceback
 import json
 import os
+import string
+import random
 import threading
 import re
 import datetime
@@ -36,9 +36,16 @@ def cdc(*args, **kwargs):
 # monkey patching ssl.create_default_context to fix SSL error
 ssl.create_default_context = cdc
 
-# OpenAI API key and model
-api_key = os.environ["OPENAI_API_KEY"]
-model = os.getenv("OPENAI_MODEL", "gpt-4-vision-preview")
+# AI parameters
+api_key = os.environ["AI_API_KEY"]
+model = os.getenv("AI_MODEL", "gpt-4-vision-preview")
+timeout = int(os.getenv("AI_TIMEOUT", "120"))
+max_tokens = int(os.getenv("MAX_TOKENS", "4096"))
+temperature = float(os.getenv("TEMPERATURE", "0.15"))
+
+image_size = os.getenv("IMAGE_SIZE", "1024x1024")
+image_quality = os.getenv("IMAGE_QUALITY", "standard")
+image_style = os.getenv("IMAGE_STYLE", "vivid")
 
 # Mattermost server details
 mattermost_url = os.environ["MATTERMOST_URL"]
@@ -50,10 +57,6 @@ mattermost_mfa_token = os.getenv("MATTERMOST_MFA_TOKEN", "")
 
 # Maximum website size
 max_response_size = 1024 * 1024 * int(os.getenv("MAX_RESPONSE_SIZE_MB", "100"))
-
-# Model parameters
-max_tokens = int(os.getenv("MAX_TOKENS", "4096"))
-temperature = float(os.getenv("TEMPERATURE", "0.15"))
 
 # For filtering local links
 regex_local_links = r'(?:127\.|192\.168\.|10\.|172\.1[6-9]\.|172\.2[0-9]\.|172\.3[0-1]\.|::1|[fF][cCdD]|localhost)'
@@ -75,8 +78,8 @@ driver = Driver({
 chatbot_username = ""
 chatbot_usernameAt = ""
 
-# Create an OpenAI client instance
-openai_client = OpenAI(api_key=api_key)
+# Create an AI client instance
+ai_client = OpenAI(api_key=api_key)
 
 # Create a thread pool with a fixed number of worker threads
 thread_pool = concurrent.futures.ThreadPoolExecutor(max_workers=5)
@@ -121,80 +124,147 @@ def ensure_alternating_roles(messages):
     return updated_messages
 
 
-def send_typing_indicator(user_id, channel_id, parent_id=None):
+def send_typing_indicator(user_id, channel_id, parent_id):
     """Send a "typing" indicator to show that work is in progress."""
     options = {
         "channel_id": channel_id,
-        "parent_id": parent_id
+        # "parent_id": parent_id  # somehow bugged/doesnt work
     }
     driver.client.make_request('post', f'/users/{user_id}/typing', options=options)
 
 
-def send_typing_indicator_loop(user_id, channel_id, stop_event):
+def send_typing_indicator_loop(user_id, channel_id, parent_id, stop_event):
     while not stop_event.is_set():
         try:
-            send_typing_indicator(user_id, channel_id)
+            send_typing_indicator(user_id, channel_id, parent_id)
             time.sleep(2)
         except Exception as e:
             logging.error(f"Error sending busy indicator: {str(e)} {traceback.format_exc()}")
 
 
-def handle_typing_indicator(user_id, channel_id):
+def handle_typing_indicator(user_id, channel_id, parent_id):
     stop_typing_event = threading.Event()
     typing_indicator_thread = threading.Thread(target=send_typing_indicator_loop,
-                                               args=(user_id, channel_id, stop_typing_event))
+                                               args=(user_id, channel_id, parent_id, stop_typing_event))
     typing_indicator_thread.start()
     return stop_typing_event, typing_indicator_thread
 
 
-def process_message(messages, channel_id, root_id, sender_name, links):
-    stop_typing_event = None
-    typing_indicator_thread = None
+def handle_image_generation(last_message, messages, channel_id, root_id, sender_name, links):
+    random_file_name = None
     try:
-        logger.info("Querying OpenAI API")
-
-        # Start the typing indicator
-        stop_typing_event, typing_indicator_thread = handle_typing_indicator(driver.client.userid, channel_id)
-
-        try:
-            # Send the messages to the OpenAI API
-            response = openai_client.chat.completions.create(
-                model=model,
-                max_tokens=max_tokens,
-                messages=[
-                    {"role": "system", "content": get_system_instructions()},
-                    *messages
-                ],
-                timeout=120,
-                temperature=temperature
-            )
-        except openai.APITimeoutError:
-            logging.warning("OpenAI API call timed out after 2 minutes")
-            response_text = "Sorry, the API call took too long to respond."
+        # Check if "#draw " is present in any case and replace the first occurrence
+        if re.search(r'#draw ', last_message, re.IGNORECASE):
+            last_message = re.sub(r'#draw ', '', last_message, count=1, flags=re.IGNORECASE)
+            last_message = f"I NEED to test how the tool works with extremely simple prompts. DO NOT add any detail, just use it AS-IS: {last_message}"
         else:
-            # Extract the text content
-            response_text = response.choices[0].message.content
+            # If "#draw " is not found, replace the first occurrence of "draw " in any case
+            last_message = re.sub(r'\bdraw ', '', last_message, count=1, flags=re.IGNORECASE)
 
-            # Failsafe: Remove all blocks containing [CONTEXT
-            response_text = re.sub(r'(?s)\[CONTEXT.*?]', '', response_text).strip()
+        response = ai_client.images.generate(
+            model="dall-e-3",
+            prompt=last_message,
+            size=image_size,  # type: ignore
+            quality=image_quality,  # type: ignore
+            style=image_style,  # type: ignore
+            n=1,
+            response_format="b64_json",
+            timeout=timeout
+        )
 
-            # Failsafe: Remove all input links from the response
-            for link in links:
-                response_text = response_text.replace(link, '')
-            response_text = response_text.strip()
+        # Extract the base64-encoded image data from the response
+        image_data = response.data[0].b64_json
+        revised_prompt = response.data[0].revised_prompt
+
+        # Decode the base64-encoded image data
+        decoded_image_data = base64.b64decode(image_data)
+
+        # Generate a random file name
+        random_file_name = ''.join(random.choices(string.ascii_letters + string.digits, k=20)) + ".png"
+        # Save the image data to a local file
+        with open(random_file_name, "wb") as file:
+            file.write(decoded_image_data)
+
+        file_id = driver.files.upload_file(channel_id=channel_id,files={'files': (random_file_name, open(random_file_name, 'rb'))})['file_infos'][0]['id']
 
         # Send the API response back to the Mattermost channel as a reply to the thread or as a new thread
         driver.posts.create_post({
             "channel_id": channel_id,
-            "message": response_text,
+            "message": f"_{revised_prompt}_",
+            "root_id": root_id,
+            'file_ids': [file_id]
+        })
+
+    finally:
+        # Delete the image file if it was created
+        if random_file_name is not None and os.path.exists(random_file_name):
+            os.remove(random_file_name)
+
+
+def handle_text_generation(last_message, messages, channel_id, root_id, sender_name, links):
+    try:
+        # Send the messages to the OpenAI API
+        response = ai_client.chat.completions.create(
+            model=model,
+            max_tokens=max_tokens,
+            messages=[
+                {"role": "system", "content": get_system_instructions()},
+                *messages
+            ],
+            timeout=timeout,
+            temperature=temperature
+        )
+
+        # Extract the text content
+        response_text = response.choices[0].message.content
+
+        # Failsafe: Remove all blocks containing [CONTEXT
+        response_text = re.sub(r'(?s)\[CONTEXT.*?]', '', response_text).strip()
+
+        # Failsafe: Remove all input links from the response
+        for link in links:
+            response_text = response_text.replace(link, '')
+        response_text = response_text.strip()
+
+    except Exception as e:
+        logging.error(f"Error generating text: {str(e)} {traceback.format_exc()}")
+        response_text = "Sorry, an error occurred while generating the response."
+
+    # Send the API response back to the Mattermost channel as a reply to the thread or as a new thread
+    driver.posts.create_post({
+        "channel_id": channel_id,
+        "message": response_text,
+        "root_id": root_id
+    })
+
+
+def process_message(last_message, messages, channel_id, root_id, sender_name, links):
+    stop_typing_event = None
+    typing_indicator_thread = None
+    try:
+        logger.info("Querying AI API")
+
+        # Start the typing indicator
+        stop_typing_event, typing_indicator_thread = handle_typing_indicator(driver.client.userid, channel_id, root_id)
+
+        # Check if "draw " is present in any case
+        if re.search(r'\bdraw ', last_message, re.IGNORECASE):
+            handle_image_generation(last_message, messages, channel_id, root_id, sender_name, links)
+        else:
+            handle_text_generation(last_message, messages, channel_id, root_id, sender_name, links)
+
+    except Exception as e:
+        logging.error(f"Error: {str(e)} {traceback.format_exc()}")
+        driver.posts.create_post({
+            "channel_id": channel_id,
+            "message": str(e),
             "root_id": root_id
         })
 
-    except Exception as e:
-        logging.error(f"Error processing message: {str(e)} {traceback.format_exc()}")
     finally:
         if stop_typing_event is not None:
             stop_typing_event.set()
+        if typing_indicator_thread is not None:
             typing_indicator_thread.join()
 
 
@@ -385,7 +455,7 @@ async def message_handler(event):
                     messages = ensure_alternating_roles(messages)
 
                     # Submit the task to the thread pool. We do this because Mattermostdriver-async is outdated
-                    thread_pool.submit(process_message, messages, channel_id, root_id, sender_name, links)
+                    thread_pool.submit(process_message, message, messages, channel_id, root_id, sender_name, links)
 
             except Exception as e:
                 logging.error(f"Error inner message handler: {str(e)} {traceback.format_exc()}")
