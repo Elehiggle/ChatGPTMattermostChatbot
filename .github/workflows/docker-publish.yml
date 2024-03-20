@@ -6,6 +6,7 @@ on:
     paths-ignore:
       - 'README.md'
       - 'docs/**'
+      - '**.png'
 
 jobs:
   build-and-push:
@@ -24,11 +25,9 @@ jobs:
     - name: Convert repository name to lowercase
       run: echo "REPO_NAME=$(echo ${{ github.repository }} | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
 
-    - name: Extract metadata (tags, labels) for Docker
-      id: meta
-      uses: docker/metadata-action@v5
-      with:
-        images: ghcr.io/${{ env.REPO_NAME }}
+    - name: Get short SHA
+      id: short_sha
+      run: echo "::set-output name=sha::$(git rev-parse --short HEAD)"
 
     - name: Build and push Docker image
       uses: docker/build-push-action@v5
@@ -38,4 +37,4 @@ jobs:
         tags: |
           ${{ steps.meta.outputs.tags }}
           ghcr.io/${{ env.REPO_NAME }}:latest
-        labels: ${{ steps.meta.outputs.labels }}
+          ghcr.io/${{ env.REPO_NAME }}:${{ steps.short_sha.outputs.sha }}
