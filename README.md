@@ -87,7 +87,7 @@ docker run -d --name chatbotgpt \
   -e MATTERMOST_TOKEN="your_mattermost_token" \
   -e MAX_RESPONSE_SIZE_MB="100" \
   -e MAX_TOKENS="4096" \
-  -e TEMPERATURE="0.15" \
+  -e TEMPERATURE="1" \
   ghcr.io/elehiggle/chatgptmattermostchatbot:latest
 ```
 
