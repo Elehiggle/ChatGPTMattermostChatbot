@@ -110,3 +110,4 @@ This project is licensed under the MIT License.
 - [OpenAI](https://openai.com/) for providing the API for generating responses
 - [Mattermost](https://mattermost.com/) for the messaging platform
 - [mattermostdriver](https://github.com/Vaelor/python-mattermost-driver) for the Mattermost API client library
+- [chatgpt-mattermost-bot](https://github.com/yGuy/chatgpt-mattermost-bot) for inspiring me to write this python code
