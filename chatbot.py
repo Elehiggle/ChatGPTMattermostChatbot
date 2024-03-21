@@ -159,6 +159,81 @@ def handle_typing_indicator(user_id, channel_id, parent_id):
     return stop_typing_event, typing_indicator_thread
 
 
+def split_message(msg, max_length=4000):
+    """
+    Split a message based on a maximum character length, ensuring Markdown code blocks
+    and their languages are preserved. Avoids unnecessary linebreaks at the end of the last message
+    and when closing a code block if the last line is already a newline.
+
+    Args:
+    - msg (str): The message to be split.
+    - max_length (int, optional): The maximum length of each split message. Defaults to 4000.
+
+    Returns:
+    - list of str: The message split into chunks, preserving Markdown code blocks and languages,
+                   and avoiding unnecessary linebreaks.
+    """
+    if len(msg) <= max_length:
+        return [msg]
+
+    if len(msg) > 40000:
+        raise Exception(f"Message too long.")
+
+    current_chunk = ""  # Holds the current message chunk
+    chunks = []  # Collects all message chunks
+    in_code_block = False  # Tracks whether the current line is inside a code block
+    code_block_lang = ""  # Keeps the language of the current code block
+
+    # Helper function to add a chunk to the list
+    def add_chunk(chunk, in_code, code_lang):
+        if in_code:
+            # Check if the last line is not just a newline itself
+            if not chunk.endswith("\n\n"):
+                chunk += "\n"
+            chunk += "```"
+        chunks.append(chunk)
+        if in_code:
+            # Start a new code block with the same language
+            return f"```{code_lang}\n"
+        return ""
+
+    lines = msg.split('\n')
+    for i, line in enumerate(lines):
+        # Check if this line starts or ends a code block
+        if line.startswith("```"):
+            if in_code_block:
+                # Ending a code block
+                in_code_block = False
+                # Avoid adding an extra newline if the line is empty
+                if current_chunk.endswith("\n"):
+                    current_chunk += line
+                else:
+                    current_chunk += "\n" + line
+            else:
+                # Starting a new code block, capture the language
+                in_code_block = True
+                code_block_lang = line[3:].strip()  # Remove the backticks and get the language
+                current_chunk += line + "\n"
+        else:
+            # If adding this line exceeds the max length, we need to split here
+            if len(current_chunk) + len(line) + 1 > max_length:
+                # Split here, preserve the code block state and language if necessary
+                current_chunk = add_chunk(current_chunk, in_code_block, code_block_lang)
+                current_chunk += line
+                if i < len(lines) - 1:  # Avoid adding a newline at the end of the last line
+                    current_chunk += "\n"
+            else:
+                current_chunk += line
+                if i < len(lines) - 1:  # Avoid adding a newline at the end of the last line
+                    current_chunk += "\n"
+
+    # Don't forget to add the last chunk
+    if current_chunk:
+        add_chunk(current_chunk, in_code_block, code_block_lang)
+
+    return chunks
+
+
 def handle_image_generation(
     last_message, messages, channel_id, root_id, sender_name, links
 ):
@@ -246,10 +321,15 @@ def handle_text_generation(
         response_text = response_text.replace(link, "")
     response_text = response_text.strip()
 
-    # Send the API response back to the Mattermost channel as a reply to the thread or as a new thread
-    driver.posts.create_post(
-        {"channel_id": channel_id, "message": response_text, "root_id": root_id}
-    )
+    # Split the response into multiple messages if necessary
+    response_parts = split_message(response_text)
+
+    # Send each part of the response as a separate message
+    for part in response_parts:
+        # Send the API response back to the Mattermost channel as a reply to the thread or as a new thread
+        driver.posts.create_post(
+            {"channel_id": channel_id, "message": part, "root_id": root_id}
+        )
 
 
 def process_message(last_message, messages, channel_id, root_id, sender_name, links):
