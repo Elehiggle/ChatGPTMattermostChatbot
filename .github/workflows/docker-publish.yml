@@ -45,6 +45,7 @@ jobs:
         username: ${{ secrets.DOCKERHUB_USERNAME }}
         password: ${{ secrets.DOCKERHUB_TOKEN }}
         repository: ${{ env.REPO_NAME }}
+        enable-url-completion: true
 
     - name: Build and push Docker image
       uses: docker/build-push-action@v5
