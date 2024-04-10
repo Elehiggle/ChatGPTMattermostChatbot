@@ -3,6 +3,9 @@ name: Docker Publish
 on:
   push:
     branches: [master]
+    paths-ignore:
+      - 'README.md'
+      - '**.png'
 
 jobs:
   build-and-push:
@@ -36,16 +39,23 @@ jobs:
           docker.io/${{ env.REPO_NAME }}
           ghcr.io/${{ env.REPO_NAME }}
         tags: |
+          type=semver,pattern={{version}}
+          type=semver,pattern={{major}}.{{minor}}
+          type=ref,event=branch
+          type=ref,event=pr
           type=raw,value=latest
           type=sha
 
-    - name: Docker Hub Description
-      uses: peter-evans/dockerhub-description@e98e4d1628a5f3be2be7c231e50981aee98723ae
+    - name: Setup Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Cache Docker layers
+      uses: actions/cache@v4
       with:
-        username: ${{ secrets.DOCKERHUB_USERNAME }}
-        password: ${{ secrets.DOCKERHUB_TOKEN }}
-        repository: ${{ env.REPO_NAME }}
-        enable-url-completion: true
+        path: /tmp/.buildx-cache
+        key: ${{ runner.os }}-buildx-${{ github.sha }}
+        restore-keys: |
+          ${{ runner.os }}-buildx-
 
     - name: Build and push Docker image
       uses: docker/build-push-action@v5
@@ -54,3 +64,10 @@ jobs:
         push: true
         labels: ${{ steps.meta.outputs.labels }}
         tags: ${{ steps.meta.outputs.tags }}
+        cache-from: type=local,src=/tmp/.buildx-cache
+        cache-to: type=local,dest=/tmp/.buildx-cache-new
+
+    - name: Move Docker cache
+      run: |
+        rm -rf /tmp/.buildx-cache
+        mv /tmp/.buildx-cache-new /tmp/.buildx-cache
