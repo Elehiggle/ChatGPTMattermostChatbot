@@ -1,3 +1,12 @@
+<p align="center">
+  <a href="https://github.com/Elehiggle/ChatGPTMattermostChatbot/stargazers"><img src="https://img.shields.io/github/stars/Elehiggle/ChatGPTMattermostChatbot?style=flat-square" alt="GitHub Repo stars"></a>
+  <a href="https://github.com/Elehiggle/ChatGPTMattermostChatbot/actions/workflows/docker-publish.yml"><img src="https://img.shields.io/github/actions/workflow/status/Elehiggle/ChatGPTMattermostChatbot/docker-publish.yml?branch=master&label=build&logo=github&style=flat-square" alt="GitHub Actions Workflow Status"></a>
+  <a href="https://hub.docker.com/r/elehiggle/chatgptmattermostchatbot"><img src="https://img.shields.io/docker/stars/elehiggle/chatgptmattermostchatbot.svg?style=flat-square&logo=docker" alt="Docker Stars"></a>
+  <a href="https://hub.docker.com/r/elehiggle/chatgptmattermostchatbot"><img src="https://img.shields.io/docker/pulls/elehiggle/chatgptmattermostchatbot.svg?style=flat-square&logo=docker" alt="Docker Pulls"></a>
+  <a href="https://github.com/Elehiggle/ChatGPTMattermostChatbot/commits/master"><img src="https://img.shields.io/github/last-commit/Elehiggle/ChatGPTMattermostChatbot?style=flat-square" alt="GitHub last commit"></a>
+  <a href="https://github.com/Elehiggle/ChatGPTMattermostChatbot/blob/master/LICENSE"><img src="https://img.shields.io/github/license/Elehiggle/ChatGPTMattermostChatbot?style=flat-square" alt="GitHub License"></a>
+</p>
+
 # ChatGPTMattermostChatbot
 
 ![Mattermost chat with bot example](./chat.png)
