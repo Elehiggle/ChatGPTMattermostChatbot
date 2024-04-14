@@ -19,6 +19,7 @@ This project is a chatbot for Mattermost that integrates with the OpenAI API to 
 - Extracts text content from links shared in the messages
 - Supports DALL-E-3 image generation
 - Supports the **Vision API** for describing images provided as URLs within the chat message
+- Gets transcripts of YouTube videos for easy tl;dw summarizations
 - Maintains context of the conversation within a thread
 - Sends typing indicators to show that the chatbot is processing the message
 - Utilizes a thread pool to handle multiple requests concurrently (due to `mattermostdriver-asyncio` being outdated)
@@ -48,7 +49,7 @@ pip3 install -r requirements.txt
 ```
 _or alternatively:_
 ```bash
-python3.12 -m pip install openai mattermostdriver ssl certifi beautifulsoup4 pillow httpx
+python3.12 -m pip install openai mattermostdriver ssl certifi beautifulsoup4 pillow httpx youtube-transcript-api
 ```
 
 3. Set the following environment variables with your own values:

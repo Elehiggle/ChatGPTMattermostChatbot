@@ -18,6 +18,7 @@ import httpx
 from io import BytesIO
 from PIL import Image
 from openai import OpenAI
+from youtube_transcript_api import YouTubeTranscriptApi
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -339,6 +340,9 @@ def handle_text_generation(
         response_text = response_text.replace(link, "")
     response_text = response_text.strip()
 
+    # Failsafe: Remove all empty markdown links
+    response_text = re.sub(r"\[.*?]\(\)", "", response_text).strip()
+
     # Split the response into multiple messages if necessary
     response_parts = split_message(response_text)
 
@@ -471,6 +475,11 @@ async def message_handler(event):
                                 logging.info(f"Skipping local URL: {link}")
                                 continue
                             try:
+                                if yt_is_valid_url(link):
+                                    transcript_text = yt_get_transcript(link)
+                                    extracted_text += transcript_text
+                                    continue
+
                                 with client.stream(
                                     "GET", link, timeout=4, follow_redirects=True
                                 ) as response:
@@ -643,6 +652,63 @@ async def message_handler(event):
         )
     except Exception as e:
         logging.error(f"Error message_handler: {str(e)} {traceback.format_exc()}")
+
+
+def yt_find_preferred_transcript(video_id):
+    transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
+
+    # Define the preferred order of transcript types and languages
+    preferred_order = [
+        ("manual", "en"),
+        ("manual", None),
+        ("generated", "en"),
+        ("generated", None),
+    ]
+
+    # Convert the TranscriptList to a regular list
+    transcripts = list(transcript_list)
+
+    # Sort the transcripts based on the preferred order
+    transcripts.sort(
+        key=lambda t: (
+            preferred_order.index((t.is_generated, t.language_code))
+            if (t.is_generated, t.language_code) in preferred_order
+            else len(preferred_order)
+        )
+    )
+
+    # Return the first transcript in the sorted list
+    return transcripts[0] if transcripts else None
+
+
+def yt_extract_video_id(url):
+    pattern = r"(?:youtube\.com/(?:[^/]+/.+/|(?:v|e(?:mbed)?)/|.*[?&]v=)|youtu\.be/|youtube\.com/shorts/)([^\"&?/\s]{11})"
+    match = re.search(pattern, url)
+    return match.group(1) if match else None
+
+
+def yt_get_transcript(url):
+    video_id = yt_extract_video_id(url)
+    preferred_transcript = yt_find_preferred_transcript(video_id)
+
+    if preferred_transcript:
+        transcript = preferred_transcript.fetch()
+        transcript_text = ""
+        for segment in transcript:
+            transcript_text += segment["text"]
+
+        return transcript_text
+
+    return (
+        "*COULD NOT FETCH THE VIDEO TRANSCRIPT FOR THE CHATBOT, WARN THE CHATBOT USER*"
+    )
+
+
+def yt_is_valid_url(url):
+    # Pattern to match various YouTube URL formats including video IDs
+    pattern = r"(?:youtube\.com/(?:[^/]+/.+/|(?:v|e(?:mbed)?)/|.*[?&]v=)|youtu\.be/|youtube\.com/shorts/)([^\"&?/\s]{11})"
+    match = re.search(pattern, url)
+    return bool(match)  # True if match found, False otherwise
 
 
 def main():
