@@ -38,7 +38,7 @@ ssl.create_default_context = cdc
 
 # AI parameters
 api_key = os.environ["AI_API_KEY"]
-model = os.getenv("AI_MODEL", "gpt-4-vision-preview")
+model = os.getenv("AI_MODEL", "gpt-4-turbo")
 ai_api_baseurl = os.getenv("AI_API_BASEURL", None)
 timeout = int(os.getenv("AI_TIMEOUT", "120"))
 max_tokens = int(os.getenv("MAX_TOKENS", "4096"))

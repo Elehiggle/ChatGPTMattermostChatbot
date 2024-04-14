@@ -56,7 +56,7 @@ python3.12 -m pip install openai mattermostdriver ssl certifi beautifulsoup4 pil
 | Parameter              | Description                                                                                                                                                          |
 |------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `AI_API_KEY`           | Your OpenAI API key                                                                                                                                                  |
-| `AI_MODEL`             | The OpenAI model to use. Default: "gpt-4-vision-preview"                                                                                                             |
+| `AI_MODEL`             | The OpenAI model to use. Default: "gpt-4-turbo"                                                                                                                      |
 | `MATTERMOST_URL`       | The URL of your Mattermost server                                                                                                                                    |
 | `MATTERMOST_TOKEN`     | The bot token (alternatively personal access token) with relevant permissions created specifically for the chatbot. Don't forget to add the bot account to the team. |
 | `MATTERMOST_USERNAME`  | The username of the dedicated Mattermost user account for the chatbot (if using username/password login)                                                             |
