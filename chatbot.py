@@ -46,7 +46,7 @@ max_tokens = int(os.getenv("MAX_TOKENS", "4096"))
 temperature = float(os.getenv("TEMPERATURE", "1"))
 system_prompt_unformatted = os.getenv(
     "AI_SYSTEM_PROMPT",
-    "You are a helpful assistant. The current UTC time is {current_time}. Whenever users asks you for help you will provide them with succinct answers formatted using Markdown; do not unnecessarily greet people with their name. Do not be apologetic. You know the user's name as it is provided within [CONTEXT, from:username] bracket at the beginning of a user-role message. Never add any CONTEXT bracket to your replies (eg. [CONTEXT, from:{chatbot_username}]). The CONTEXT bracket may also include grabbed text from a website if a user adds a link to his question.",
+    "You are a helpful assistant. The current UTC time is {current_time}. Whenever users asks you for help you will provide them with succinct answers formatted using Markdown; do not unnecessarily greet people with their name. Do not be apologetic. You know the user's name as it is provided within [CONTEXT, from:username] bracket at the beginning of a user-role message. Never add any CONTEXT bracket to your replies (eg. [CONTEXT, from:{chatbot_username}]). The CONTEXT bracket may also include grabbed text from a website if a user adds a link to his question. Users may post YouTube links for which you will get the transcript, in your answer DO NOT don't contain the link to the video the user just provided to you as he already knows it.",
 )
 
 image_size = os.getenv("IMAGE_SIZE", "1024x1024")
@@ -688,12 +688,16 @@ def yt_extract_video_id(url):
 
 
 def yt_get_transcript(url):
-    video_id = yt_extract_video_id(url)
-    preferred_transcript = yt_find_preferred_transcript(video_id)
+    try:
+        video_id = yt_extract_video_id(url)
+        preferred_transcript = yt_find_preferred_transcript(video_id)
 
-    if preferred_transcript:
-        transcript = preferred_transcript.fetch()
-        return str(transcript)
+        if preferred_transcript:
+            transcript = preferred_transcript.fetch()
+            print(str(transcript))
+            return str(transcript)
+    except Exception as e:
+        pass
 
     return (
         "*COULD NOT FETCH THE VIDEO TRANSCRIPT FOR THE CHATBOT, WARN THE CHATBOT USER*"
