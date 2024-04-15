@@ -694,7 +694,6 @@ def yt_get_transcript(url):
 
         if preferred_transcript:
             transcript = preferred_transcript.fetch()
-            print(str(transcript))
             return str(transcript)
     except Exception as e:
         pass
