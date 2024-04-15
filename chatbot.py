@@ -693,11 +693,7 @@ def yt_get_transcript(url):
 
     if preferred_transcript:
         transcript = preferred_transcript.fetch()
-        transcript_text = ""
-        for segment in transcript:
-            transcript_text += segment["text"]
-
-        return transcript_text
+        return str(transcript)
 
     return (
         "*COULD NOT FETCH THE VIDEO TRANSCRIPT FOR THE CHATBOT, WARN THE CHATBOT USER*"
