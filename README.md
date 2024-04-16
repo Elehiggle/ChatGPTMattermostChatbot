@@ -1,11 +1,10 @@
-<p align="center">
-  <a href="https://github.com/Elehiggle/ChatGPTMattermostChatbot/stargazers"><img src="https://img.shields.io/github/stars/Elehiggle/ChatGPTMattermostChatbot?style=flat-square" alt="GitHub Repo stars"></a>
-  <a href="https://github.com/Elehiggle/ChatGPTMattermostChatbot/actions/workflows/docker-publish.yml"><img src="https://img.shields.io/github/actions/workflow/status/Elehiggle/ChatGPTMattermostChatbot/docker-publish.yml?branch=master&label=build&logo=github&style=flat-square" alt="GitHub Actions Workflow Status"></a>
-  <a href="https://hub.docker.com/r/elehiggle/chatgptmattermostchatbot"><img src="https://img.shields.io/docker/stars/elehiggle/chatgptmattermostchatbot.svg?style=flat-square&logo=docker" alt="Docker Stars"></a>
-  <a href="https://hub.docker.com/r/elehiggle/chatgptmattermostchatbot"><img src="https://img.shields.io/docker/pulls/elehiggle/chatgptmattermostchatbot.svg?style=flat-square&logo=docker" alt="Docker Pulls"></a>
-  <a href="https://github.com/Elehiggle/ChatGPTMattermostChatbot/commits/master"><img src="https://img.shields.io/github/last-commit/Elehiggle/ChatGPTMattermostChatbot?style=flat-square" alt="GitHub last commit"></a>
-  <a href="https://github.com/Elehiggle/ChatGPTMattermostChatbot/blob/master/LICENSE"><img src="https://img.shields.io/github/license/Elehiggle/ChatGPTMattermostChatbot?style=flat-square" alt="GitHub License"></a>
-</p>
+[![GitHub Repo stars](https://img.shields.io/github/stars/Elehiggle/ChatGPTMattermostChatbot?style=flat-square)](https://github.com/Elehiggle/ChatGPTMattermostChatbot/stargazers)
+[![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/Elehiggle/ChatGPTMattermostChatbot/docker-publish.yml?branch=master&label=build&logo=github&style=flat-square)](https://github.com/Elehiggle/ChatGPTMattermostChatbot/actions/workflows/docker-publish.yml)
+[![Docker Stars](https://img.shields.io/docker/stars/elehiggle/chatgptmattermostchatbot.svg?style=flat-square&logo=docker)](https://hub.docker.com/r/elehiggle/chatgptmattermostchatbot)
+[![Docker Pulls](https://img.shields.io/docker/pulls/elehiggle/chatgptmattermostchatbot.svg?style=flat-square&logo=docker)](https://hub.docker.com/r/elehiggle/chatgptmattermostchatbot)
+[![GitHub last commit](https://img.shields.io/github/last-commit/Elehiggle/ChatGPTMattermostChatbot?style=flat-square)](https://github.com/Elehiggle/ChatGPTMattermostChatbot/commits/master)
+[![Codacy Badge](https://app.codacy.com/project/badge/Grade/19b4e6574ec14126b7182ee373644cb4)](https://app.codacy.com/gh/Elehiggle/ChatGPTMattermostChatbot/dashboard?utm_source=gh&utm_medium=referral&utm_content=&utm_campaign=Badge_grade)
+[![GitHub License](https://img.shields.io/github/license/Elehiggle/ChatGPTMattermostChatbot?style=flat-square)](https://github.com/Elehiggle/ChatGPTMattermostChatbot/blob/master/LICENSE)
 
 # ChatGPTMattermostChatbot
 
@@ -37,20 +36,20 @@ This project is a chatbot for Mattermost that integrates with the OpenAI API to 
 
 1. Clone the repository:
 
-```bash
-git clone https://github.com/Elehiggle/ChatGPTMattermostChatbot.git
-cd ChatGPTMattermostChatbot
-```
+    ```bash
+    git clone https://github.com/Elehiggle/ChatGPTMattermostChatbot.git
+    cd ChatGPTMattermostChatbot
+    ```
 
 2. Install the required dependencies:
 
-```bash
-pip3 install -r requirements.txt
-```
-_or alternatively:_
-```bash
-python3.12 -m pip install openai mattermostdriver ssl certifi beautifulsoup4 pillow httpx youtube-transcript-api
-```
+    ```bash
+    pip3 install -r requirements.txt
+    ```
+   _or alternatively:_
+    ```bash
+    python3.12 -m pip install openai mattermostdriver ssl certifi beautifulsoup4 pillow httpx youtube-transcript-api
+    ```
 
 3. Set the following environment variables with your own values:
 
@@ -64,7 +63,7 @@ python3.12 -m pip install openai mattermostdriver ssl certifi beautifulsoup4 pil
 | `MATTERMOST_PASSWORD`  | The password of the dedicated Mattermost user account for the chatbot (if using username/password login)                                                             |
 | `MATTERMOST_MFA_TOKEN` | The MFA token of the dedicated Mattermost user account for the chatbot (if using MFA)                                                                                |
 
-#### Extended optional configuration variables:
+### Extended optional configuration variables:
 
 | Parameter                     | Description                                                                                                                                                                                                                                                                                    |
 |-------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|

@@ -88,7 +88,7 @@ driver = Driver(
 
 # Chatbot account username, automatically fetched
 chatbot_username = ""
-chatbot_usernameAt = ""
+chatbot_username_at = ""
 
 # Create an AI client instance
 ai_client = OpenAI(api_key=api_key, base_url=ai_api_baseurl)
@@ -101,7 +101,6 @@ def get_system_instructions():
     current_time = datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%d %H:%M:%S.%f")[
         :-3
     ]
-    global chatbot_username
     return system_prompt_unformatted.format(
         current_time=current_time, chatbot_username=chatbot_username
     )
@@ -190,7 +189,7 @@ def split_message(msg, max_length=4000):
         return [msg]
 
     if len(msg) > 40000:
-        raise Exception(f"Message too long.")
+        raise Exception("Message too long.")
 
     current_chunk = ""  # Holds the current message chunk
     chunks = []  # Collects all message chunks
@@ -410,7 +409,7 @@ async def message_handler(event):
                 return
 
             # Remove the "@chatbot" mention from the message
-            message = post["message"].replace(chatbot_usernameAt, "").strip()
+            message = post["message"].replace(chatbot_username_at, "").strip()
             channel_id = post["channel_id"]
             sender_name = sanitize_username(event_data["data"]["sender_name"])
             root_id = post["root_id"]  # Get the root_id of the thread
@@ -458,7 +457,7 @@ async def message_handler(event):
 
                 # Add the current message to the messages array if "@chatbot" is mentioned, the chatbot has already been invoked in the thread or its a DM
                 if (
-                    chatbot_usernameAt in post["message"]
+                    chatbot_username_at in post["message"]
                     or chatbot_invoked
                     or channel_display_name.startswith("@")
                 ):
@@ -696,7 +695,7 @@ def yt_get_transcript(url):
             transcript = preferred_transcript.fetch()
             return str(transcript)
     except Exception as e:
-        pass
+        logging.info(f"YouTube Transcript Exception: {str(e)}")
 
     return (
         "*COULD NOT FETCH THE VIDEO TRANSCRIPT FOR THE CHATBOT, WARN THE CHATBOT USER*"
@@ -714,9 +713,9 @@ def main():
     try:
         # Log in to the Mattermost server
         driver.login()
-        global chatbot_username, chatbot_usernameAt
+        global chatbot_username, chatbot_username_at
         chatbot_username = driver.client.username
-        chatbot_usernameAt = f"@{chatbot_username}"
+        chatbot_username_at = f"@{chatbot_username}"
 
         logging.info(f"SYSTEM PROMPT: {get_system_instructions()}")
 
