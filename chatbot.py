@@ -65,6 +65,8 @@ mattermost_username = os.getenv("MATTERMOST_USERNAME", "")
 mattermost_password = os.getenv("MATTERMOST_PASSWORD", "")
 mattermost_mfa_token = os.getenv("MATTERMOST_MFA_TOKEN", "")
 
+flaresolverr_endpoint = os.getenv("FLARESOLVERR_ENDPOINT", "")
+
 # Maximum website size
 max_response_size = 1024 * 1024 * int(os.getenv("MAX_RESPONSE_SIZE_MB", "100"))
 
@@ -339,7 +341,7 @@ def handle_text_generation(
         response_text = response_text.replace(link, "")
     response_text = response_text.strip()
 
-    # Failsafe: Remove all empty markdown links
+    # Failsafe: Remove all empty Markdown links
     response_text = re.sub(r"\[.*?]\(\)", "", response_text).strip()
 
     # Split the response into multiple messages if necessary
@@ -387,6 +389,35 @@ def process_message(last_message, messages, channel_id, root_id, sender_name, li
             typing_indicator_thread.join()
 
 
+def should_ignore_post(post):
+    sender_id = post["user_id"]
+
+    # Ignore own posts
+    if sender_id == driver.client.userid or sender_id == mattermost_ignore_sender_id:
+        return True
+
+    if sender_id == mattermost_ignore_sender_id:
+        logging.info("Ignoring post from an ignored sender ID")
+        return True
+
+    if post.get("props", {}).get("from_bot") == "true":
+        logging.info("Ignoring post from a bot")
+        return True
+
+    return False
+
+
+def extract_post_data(post, event_data):
+    # Remove the "@chatbot" mention from the message
+    message = post["message"].replace(chatbot_username_at, "").strip()
+    channel_id = post["channel_id"]
+    sender_name = sanitize_username(event_data["data"]["sender_name"])
+    root_id = post["root_id"]
+    post_id = post["id"]
+    channel_display_name = event_data["data"]["channel_display_name"]
+    return message, channel_id, sender_name, root_id, post_id, channel_display_name
+
+
 async def message_handler(event):
     try:
         event_data = json.loads(event)
@@ -395,12 +426,7 @@ async def message_handler(event):
             logging.info("Received 'hello' event. WebSocket connection established.")
         elif event_data.get("event") == "posted":
             post = json.loads(event_data["data"]["post"])
-            sender_id = post["user_id"]
-            if (
-                sender_id == driver.client.userid
-                or sender_id == mattermost_ignore_sender_id
-            ):
-                logging.info("Ignoring post from an ignored sender ID")
+            if should_ignore_post(post):
                 return
 
             # Check if the post is from a bot
@@ -408,13 +434,9 @@ async def message_handler(event):
                 logging.info("Ignoring post from a bot")
                 return
 
-            # Remove the "@chatbot" mention from the message
-            message = post["message"].replace(chatbot_username_at, "").strip()
-            channel_id = post["channel_id"]
-            sender_name = sanitize_username(event_data["data"]["sender_name"])
-            root_id = post["root_id"]  # Get the root_id of the thread
-            post_id = post["id"]
-            channel_display_name = event_data["data"]["channel_display_name"]
+            message, channel_id, sender_name, root_id, post_id, channel_display_name = (
+                extract_post_data(post, event_data)
+            )
 
             try:
                 # Retrieve the thread context
@@ -591,6 +613,14 @@ async def message_handler(event):
                                         )
                                     else:
                                         # Handle text content
+                                        try:
+                                            if flaresolverr_endpoint:
+                                                extracted_text += extract_content_with_flaresolverr(link, flaresolverr_endpoint)
+                                            else:
+                                                raise Exception("FlareSolverr endpoint not available")
+                                        except Exception as e:
+                                            logging.info(f"Falling back to HTTPX. Reason: {str(e)}")
+
                                         content_chunks = []
                                         for chunk in response.iter_bytes():
                                             content_chunks.append(chunk)
@@ -602,7 +632,9 @@ async def message_handler(event):
                                                 )
                                         content = b"".join(content_chunks)
                                         soup = BeautifulSoup(content, "html.parser")
-                                        extracted_text += soup.get_text()
+                                        extracted_text += soup.get_text(
+                                            " | ", strip=True
+                                        )
                             except Exception as e:
                                 logging.error(
                                     f"Error extracting content from link {link}: {str(e)} {traceback.format_exc()}"
@@ -707,6 +739,25 @@ def yt_is_valid_url(url):
     pattern = r"(?:youtube\.com/(?:[^/]+/.+/|(?:v|e(?:mbed)?)/|.*[?&]v=)|youtu\.be/|youtube\.com/shorts/)([^\"&?/\s]{11})"
     match = re.search(pattern, url)
     return bool(match)  # True if match found, False otherwise
+
+
+def extract_content_with_flaresolverr(link, flaresolverr_endpoint):
+    payload = {
+        "cmd": "request.get",
+        "url": link,
+        "maxTimeout": 30000,
+    }
+    response = httpx.post(flaresolverr_endpoint, json=payload)
+    response.raise_for_status()
+    data = response.json()
+
+    if data["status"] == "ok":
+        content = data["solution"]["response"]
+        soup = BeautifulSoup(content, "html.parser")
+        extracted_text = soup.get_text(" | ", strip=True)
+        return extracted_text
+    else:
+        raise Exception(f"FlareSolverr request failed: {data}")
 
 
 def main():

@@ -15,7 +15,8 @@ This project is a chatbot for Mattermost that integrates with the OpenAI API to 
 ## Features
 
 - Responds to messages mentioning "@chatbot" (or rather the chatbot's username) or direct messages
-- Extracts text content from links shared in the messages
+- Extracts text content from links shared in the messages. Also supports FlareSolverr to bypass Javascript/CAPTCHA
+  restrictions
 - Supports DALL-E-3 image generation
 - Supports the **Vision API** for describing images provided as URLs within the chat message
 - Gets transcripts of YouTube videos for easy tl;dw summarizations
@@ -75,6 +76,7 @@ This project is a chatbot for Mattermost that integrates with the OpenAI API to 
 | `IMAGE_QUALITY`               | The image quality for image generation. Default: "standard" (also: "hd")                                                                                                                                                                                                                       |
 | `IMAGE_STYLE`                 | The image style for image generation. Default: "vivid" (also: "natural")                                                                                                                                                                                                                       |
 | `MAX_RESPONSE_SIZE_MB`        | The maximum size of the website content to extract (in megabytes). Default: "100"                                                                                                                                                                                                              |
+| `FLARESOLVERR_ENDPOINT`       | Endpoint URL to your [FlareSolverr](https://github.com/FlareSolverr/FlareSolverr) instance (eg. http://192.168.1.55:8191/v1). If you use this, MAX_RESPONSE_SIZE_MB won't be honored since it can't stream content                                                                             |
 | `MATTERMOST_IGNORE_SENDER_ID` | The user ID of a user to ignore (optional, useful if you have multiple chatbots to prevent endless loops)                                                                                                                                                                                      |
 | `MATTERMOST_PORT`             | The port of your Mattermost server. Default: "443"                                                                                                                                                                                                                                             |
 | `MATTERMOST_SCHEME`           | The scheme of the connection. Default: "https"                                                                                                                                                                                                                                                 |
