@@ -71,7 +71,7 @@ flaresolverr_endpoint = os.getenv("FLARESOLVERR_ENDPOINT", "")
 max_response_size = 1024 * 1024 * int(os.getenv("MAX_RESPONSE_SIZE_MB", "100"))
 
 # For filtering local links
-regex_local_links = r"(?:127\.|192\.168\.|10\.|172\.1[6-9]\.|172\.2[0-9]\.|172\.3[0-1]\.|::1|[fF][cCdD]|localhost)"
+regex_local_links = r"(?:127\.|192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[0-1])\.|::1|(?<![:.\w])[fF][cCdD](?![:.\w])|localhost)"
 
 # Create a driver instance
 driver = Driver(
@@ -615,11 +615,19 @@ async def message_handler(event):
                                         # Handle text content
                                         try:
                                             if flaresolverr_endpoint:
-                                                extracted_text += extract_content_with_flaresolverr(link, flaresolverr_endpoint)
+                                                extracted_text += (
+                                                    extract_content_with_flaresolverr(
+                                                        link, flaresolverr_endpoint
+                                                    )
+                                                )
                                             else:
-                                                raise Exception("FlareSolverr endpoint not available")
+                                                raise Exception(
+                                                    "FlareSolverr endpoint not available"
+                                                )
                                         except Exception as e:
-                                            logging.info(f"Falling back to HTTPX. Reason: {str(e)}")
+                                            logging.info(
+                                                f"Falling back to HTTPX. Reason: {str(e)}"
+                                            )
 
                                         content_chunks = []
                                         for chunk in response.iter_bytes():
