@@ -2,7 +2,6 @@ name: Docker Publish
 
 on:
   push:
-    branches: [ '**' ]
     paths-ignore:
       - 'README.md'
       - '**.png'
@@ -39,12 +38,15 @@ jobs:
           docker.io/${{ env.REPO_NAME }}
           ghcr.io/${{ env.REPO_NAME }}
         tags: |
-          type=semver,pattern={{version}}
-          type=semver,pattern={{major}}.{{minor}}
+          type=semver,pattern={{version}},enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+          type=semver,pattern={{major}}.{{minor}},enable=${{ startsWith(github.ref, 'refs/tags/v') }}
           type=ref,event=branch
           type=ref,event=pr
           type=raw,value=latest,enable=${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
           type=sha
+
+    - name: Set up QEMU
+      uses: docker/setup-qemu-action@v3
 
     - name: Setup Docker Buildx
       uses: docker/setup-buildx-action@v3
@@ -55,7 +57,7 @@ jobs:
         context: .
         push: true
         provenance: false
-        platforms: linux/amd64,linux/arm64
+        platforms: linux/amd64,linux/arm/v6,linux/arm/v7,linux/arm64
         labels: ${{ steps.meta.outputs.labels }}
         tags: ${{ steps.meta.outputs.tags }}
         cache-from: type=gha
