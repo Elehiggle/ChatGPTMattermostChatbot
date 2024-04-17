@@ -150,3 +150,4 @@ This project is licensed under the MIT License.
 - [mattermostdriver](https://github.com/Vaelor/python-mattermost-driver) for the Mattermost API client library
 - [chatgpt-mattermost-bot](https://github.com/yGuy/chatgpt-mattermost-bot) for inspiring me to write this python code
 - [youtube-transcript-api](https://pypi.org/project/youtube-transcript-api/) for the YouTube Transcript Fetch library
+- [yt-dlp](https://pypi.org/project/yt-dlp/) for the YouTube API that allows us to fetch details
