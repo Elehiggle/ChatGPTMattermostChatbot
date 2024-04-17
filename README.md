@@ -20,7 +20,8 @@ This project is a chatbot for Mattermost that integrates with the OpenAI API to 
   restrictions
 - Supports **DALL-E-3 image generation**
 - Supports the **Vision API** for describing images provided as URLs within the chat message
-- **Gets transcripts of YouTube videos** for easy tl;dw summarizations
+- **Gets transcripts of YouTube videos** for easy tl;dw summarizations. Title, description and uploader are also
+  provided
 - Maintains context of the conversation within a thread
 - Sends typing indicators to show that the chatbot is processing the message
 - Utilizes a thread pool to handle multiple requests concurrently (due to `mattermostdriver-asyncio` being outdated)
@@ -28,7 +29,7 @@ This project is a chatbot for Mattermost that integrates with the OpenAI API to 
 
 ## Prerequisites
 
-- Python 3.11 or just a server with [Docker](https://docs.docker.com/get-started/). _(you can get away with using 3.8 if
+- Python 3.11 or just a server with [Docker](https://docs.docker.com/get-started/) _(you can get away with using 3.8 if
   you use datetime.datetime.utcnow() instead of datetime.datetime.now(datetime.UTC))_
 - OpenAI API key
 - Mattermost server with API access
@@ -51,7 +52,7 @@ This project is a chatbot for Mattermost that integrates with the OpenAI API to 
     ```
    _or alternatively:_
     ```bash
-    python3.12 -m pip install openai mattermostdriver certifi beautifulsoup4 pillow httpx youtube-transcript-api
+    python3.12 -m pip install openai mattermostdriver certifi beautifulsoup4 pillow httpx youtube-transcript-api yt-dlp
     ```
 
 3. Set the following environment variables with your own values:

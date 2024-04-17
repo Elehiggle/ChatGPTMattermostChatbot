@@ -16,6 +16,7 @@ from PIL import Image
 from mattermostdriver.driver import Driver
 from bs4 import BeautifulSoup
 from youtube_transcript_api import YouTubeTranscriptApi
+from yt_dlp import YoutubeDL
 from openai import OpenAI
 
 logging.basicConfig(level=logging.INFO)
@@ -256,57 +257,50 @@ def split_message(msg, max_length=4000):
 def handle_image_generation(
     last_message, messages, channel_id, root_id, sender_name, links
 ):
-    random_file_name = None
-    try:
-        # Check if "#draw " is present in any case and replace the first occurrence
-        if re.search(r"#draw ", last_message, re.IGNORECASE):
-            last_message = re.sub(
-                r"#draw ", "", last_message, count=1, flags=re.IGNORECASE
-            )
-            last_message = f"I NEED to test how the tool works with extremely simple prompts. DO NOT add any detail, just use it AS-IS: {last_message}"
-        else:
-            # If "#draw " is not found, replace the first occurrence of "draw " in any case
-            last_message = re.sub(
-                r"\bdraw ", "", last_message, count=1, flags=re.IGNORECASE
-            )
-
-        response = ai_client.images.generate(
-            model="dall-e-3",
-            prompt=last_message,
-            size=image_size,  # type: ignore
-            quality=image_quality,  # type: ignore
-            style=image_style,  # type: ignore
-            n=1,
-            response_format="b64_json",
-            timeout=timeout,
+    # Check if "#draw " is present in any case and replace the first occurrence
+    if re.search(r"#draw ", last_message, re.IGNORECASE):
+        last_message = re.sub(
+            r"#draw ", "", last_message, count=1, flags=re.IGNORECASE
+        )
+        last_message = f"I NEED to test how the tool works with extremely simple prompts. DO NOT add any detail, just use it AS-IS: {last_message}"
+    else:
+        # If "#draw " is not found, replace the first occurrence of "draw " in any case
+        last_message = re.sub(
+            r"\bdraw ", "", last_message, count=1, flags=re.IGNORECASE
         )
 
-        # Extract the base64-encoded image data from the response
-        image_data = response.data[0].b64_json
-        revised_prompt = response.data[0].revised_prompt
+    response = ai_client.images.generate(
+        model="dall-e-3",
+        prompt=last_message,
+        size=image_size,  # type: ignore
+        quality=image_quality,  # type: ignore
+        style=image_style,  # type: ignore
+        n=1,
+        response_format="b64_json",
+        timeout=timeout,
+    )
 
-        # Decode the base64-encoded image data
-        decoded_image_data = base64.b64decode(image_data)
+    # Extract the base64-encoded image data from the response
+    image_data = response.data[0].b64_json
+    revised_prompt = response.data[0].revised_prompt
 
-        file_id = driver.files.upload_file(
-            channel_id=channel_id,
-            files={"files": ("image.png", decoded_image_data)},
-        )["file_infos"][0]["id"]
+    # Decode the base64-encoded image data
+    decoded_image_data = base64.b64decode(image_data)
 
-        # Send the API response back to the Mattermost channel as a reply to the thread or as a new thread
-        driver.posts.create_post(
-            {
-                "channel_id": channel_id,
-                "message": f"_{revised_prompt}_",
-                "root_id": root_id,
-                "file_ids": [file_id],
-            }
-        )
+    file_id = driver.files.upload_file(
+        channel_id=channel_id,
+        files={"files": ("image.png", decoded_image_data)},
+    )["file_infos"][0]["id"]
 
-    finally:
-        # Delete the image file if it was created
-        if random_file_name is not None and os.path.exists(random_file_name):
-            os.remove(random_file_name)
+    # Send the API response back to the Mattermost channel as a reply to the thread or as a new thread
+    driver.posts.create_post(
+        {
+            "channel_id": channel_id,
+            "message": f"_{revised_prompt}_",
+            "root_id": root_id,
+            "file_ids": [file_id],
+        }
+    )
 
 
 def handle_text_generation(
@@ -488,8 +482,16 @@ async def message_handler(event):
                                 continue
                             try:
                                 if yt_is_valid_url(link):
-                                    transcript_text = yt_get_transcript(link)
-                                    extracted_text += transcript_text
+                                    title, description, uploader = yt_get_video_info(link)
+                                    transcript = yt_get_transcript(link)
+                                    extracted_text += f"""
+                                    <youtube_video_details>
+                                        <title>{title}</title>
+                                        <description>{description}</description>
+                                        <uploader>{uploader}</uploader>
+                                        <transcript>{transcript}</transcript>
+                                    </youtube_video_details>
+                                    """
                                     continue
 
                                 with client.stream(
@@ -525,7 +527,7 @@ async def message_handler(event):
                                             image_data += chunk
                                             total_size += len(chunk)
                                             if total_size > max_response_size:
-                                                extracted_text += "*WEBSITE SIZE EXCEEDED THE MAXIMUM LIMIT FOR THE CHATBOT, WARN THE CHATBOT USER*"
+                                                extracted_text += "*WEBSITE SIZE EXCEEDED THE MAXIMUM LIMIT FOR THE CHATBOT, WARN THE CHATBOT USER* "
                                                 raise Exception(
                                                     "Response size exceeds the maximum limit at image processing"
                                                 )
@@ -607,11 +609,7 @@ async def message_handler(event):
                                         # Handle text content
                                         try:
                                             if flaresolverr_endpoint:
-                                                extracted_text += (
-                                                    extract_content_with_flaresolverr(
-                                                        link
-                                                    )
-                                                )
+                                                extracted_text += f"{extract_content_with_flaresolverr(link)} "
                                             else:
                                                 raise Exception(
                                                     "FlareSolverr endpoint not available"
@@ -626,7 +624,7 @@ async def message_handler(event):
                                             content_chunks.append(chunk)
                                             total_size += len(chunk)
                                             if total_size > max_response_size:
-                                                extracted_text += "*WEBSITE SIZE EXCEEDED THE MAXIMUM LIMIT FOR THE CHATBOT, WARN THE CHATBOT USER*"
+                                                extracted_text += "*WEBSITE SIZE EXCEEDED THE MAXIMUM LIMIT FOR THE CHATBOT, WARN THE CHATBOT USER* "
                                                 raise Exception(
                                                     "Response size exceeds the maximum limit"
                                                 )
@@ -732,6 +730,25 @@ def yt_get_transcript(url):
     return (
         "*COULD NOT FETCH THE VIDEO TRANSCRIPT FOR THE CHATBOT, WARN THE CHATBOT USER*"
     )
+
+
+def yt_get_video_info(url):
+    ydl_opts = {
+        'quiet': True,
+        # 'no_warnings': True,
+    }
+
+    # Create a YoutubeDL instance
+    with YoutubeDL(ydl_opts) as ydl:
+        # Extract video info
+        info = ydl.extract_info(url, download=False)
+
+        # Get the desired fields from the info dictionary
+        title = info['title']
+        description = info['description']
+        uploader = info['uploader']
+
+        return title, description, uploader
 
 
 def yt_is_valid_url(url):

@@ -4,4 +4,5 @@ beautifulsoup4
 pillow
 httpx
 youtube-transcript-api
+yt-dlp
 openai
