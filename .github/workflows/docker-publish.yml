@@ -38,10 +38,6 @@ jobs:
           docker.io/${{ env.REPO_NAME }}
           ghcr.io/${{ env.REPO_NAME }}
         tags: |
-          type=semver,pattern={{version}}
-          type=semver,pattern={{major}}.{{minor}}
-          type=ref,event=branch
-          type=ref,event=pr
           type=raw,value=latest,enable=${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
 
     - name: Setup Docker Buildx
