@@ -1,7 +1,7 @@
-openai
 mattermostdriver
 certifi
 beautifulsoup4
 pillow
 httpx
 youtube-transcript-api
+openai

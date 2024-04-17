@@ -5,8 +5,6 @@ import certifi
 import traceback
 import json
 import os
-import string
-import random
 import threading
 import re
 import datetime
@@ -17,8 +15,10 @@ import base64
 import httpx
 from io import BytesIO
 from PIL import Image
-from openai import OpenAI
 from youtube_transcript_api import YouTubeTranscriptApi
+from openai import OpenAI
+import string
+import random
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)

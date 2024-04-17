@@ -14,16 +14,17 @@ This project is a chatbot for Mattermost that integrates with the OpenAI API to 
 
 ## Features
 
-- Responds to messages mentioning "@chatbot" (or rather the chatbot's username) or direct messages
-- Extracts text content from links shared in the messages. Also supports FlareSolverr to bypass Javascript/CAPTCHA
+- **Responds to messages** mentioning "@chatbot" (or rather the chatbot's username) or direct messages
+- **Extracts text content from links** shared in the messages. Also supports **FlareSolverr** to bypass
+  Javascript/CAPTCHA
   restrictions
-- Supports DALL-E-3 image generation
+- Supports **DALL-E-3 image generation**
 - Supports the **Vision API** for describing images provided as URLs within the chat message
-- Gets transcripts of YouTube videos for easy tl;dw summarizations
+- **Gets transcripts of YouTube videos** for easy tl;dw summarizations
 - Maintains context of the conversation within a thread
 - Sends typing indicators to show that the chatbot is processing the message
 - Utilizes a thread pool to handle multiple requests concurrently (due to `mattermostdriver-asyncio` being outdated)
-- Offers Docker support for easy deployment
+- Offers **Docker support** for easy deployment
 
 ## Prerequisites
 
@@ -31,7 +32,7 @@ This project is a chatbot for Mattermost that integrates with the OpenAI API to 
 - OpenAI API key
 - Mattermost server with API access
 - Mattermost Bot token (alternatively personal access token or login/password for a dedicated Mattermost user account for the chatbot)
-- The bot account needs to be added to the team
+- The bot account needs to be added to the team and to the channels you want it to watch
 
 ## Installation
 
@@ -49,7 +50,7 @@ This project is a chatbot for Mattermost that integrates with the OpenAI API to 
     ```
    _or alternatively:_
     ```bash
-    python3.12 -m pip install openai mattermostdriver ssl certifi beautifulsoup4 pillow httpx youtube-transcript-api
+    python3.12 -m pip install openai mattermostdriver certifi beautifulsoup4 pillow httpx youtube-transcript-api
     ```
 
 3. Set the following environment variables with your own values:
@@ -68,7 +69,7 @@ This project is a chatbot for Mattermost that integrates with the OpenAI API to 
 
 | Parameter                     | Description                                                                                                                                                                                                                                                                                    |
 |-------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `AI_SYSTEM_PROMPT`            | The system prompt/instructions. Default: [click](https://github.com/Elehiggle/ChatGPTMattermostChatbot/blob/438ab6eb6ff429c4ff69b2c0256d35cd4438987d/chatbot.py#L94) (Subject to change. current_time and chatbot_username variables inside the prompt will be auto-formatted and substituted. |
+| `AI_SYSTEM_PROMPT`            | The system prompt/instructions. Default: [click](https://github.com/Elehiggle/ChatGPTMattermostChatbot/blob/6ecd530f48291e9cc842a538690c92877633bb87/chatbot.py#L49) (Subject to change. current_time and chatbot_username variables inside the prompt will be auto-formatted and substituted. |
 | `AI_TIMEOUT`                  | The timeout for the AI API call in seconds. Default: "120"                                                                                                                                                                                                                                     |
 | `MAX_TOKENS`                  | The maximum number of tokens to generate in the response. Default: "4096" (max)                                                                                                                                                                                                                |
 | `TEMPERATURE`                 | The temperature value for controlling the randomness of the generated responses (0.0 = analytical, 1.0 = fully random). Default: "1"                                                                                                                                                           |
@@ -104,10 +105,9 @@ You can also run the chatbot using Docker. Use the following command to run the 
 ```bash
 docker run -d --name chatbotgpt \
   -e AI_API_KEY="your_ai_api_key" \
-  -e AI_MODEL="gpt-4-vision-preview" \
+  -e AI_MODEL="gpt-4-turbo" \
   -e MATTERMOST_URL="mattermostinstance.example.com" \
   -e MATTERMOST_TOKEN="your_mattermost_token" \
-  -e MAX_RESPONSE_SIZE_MB="100" \
   -e MAX_TOKENS="4096" \
   -e TEMPERATURE="1" \
   ghcr.io/elehiggle/chatgptmattermostchatbot:latest
@@ -131,7 +131,7 @@ Please note that the monkey patch in the code is necessary due to some SSL error
 
 ## Related Projects
 
-[Anthropic Claude 3 Bot](https://github.com/Elehiggle/Claude3MattermostChatbot)
+[Anthropic Claude 3 Mattermost Chatbot](https://github.com/Elehiggle/Claude3MattermostChatbot)
 
 ## Contributing
 
