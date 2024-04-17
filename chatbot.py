@@ -1,7 +1,5 @@
 import time
-from mattermostdriver.driver import Driver
 import ssl
-import certifi
 import traceback
 import json
 import os
@@ -9,16 +7,16 @@ import threading
 import re
 import datetime
 import logging
-from bs4 import BeautifulSoup
 import concurrent.futures
 import base64
-import httpx
 from io import BytesIO
+import certifi
+import httpx
 from PIL import Image
+from mattermostdriver.driver import Driver
+from bs4 import BeautifulSoup
 from youtube_transcript_api import YouTubeTranscriptApi
 from openai import OpenAI
-import string
-import random
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -46,7 +44,7 @@ max_tokens = int(os.getenv("MAX_TOKENS", "4096"))
 temperature = float(os.getenv("TEMPERATURE", "1"))
 system_prompt_unformatted = os.getenv(
     "AI_SYSTEM_PROMPT",
-    "You are a helpful assistant. The current UTC time is {current_time}. Whenever users asks you for help you will provide them with succinct answers formatted using Markdown; do not unnecessarily greet people with their name. Do not be apologetic. You know the user's name as it is provided within [CONTEXT, from:username] bracket at the beginning of a user-role message. Never add any CONTEXT bracket to your replies (eg. [CONTEXT, from:{chatbot_username}]). The CONTEXT bracket may also include grabbed text from a website if a user adds a link to his question. Users may post YouTube links for which you will get the transcript, in your answer DO NOT don't contain the link to the video the user just provided to you as he already knows it.",
+    "You are a helpful assistant. The current UTC time is {current_time}. Whenever users asks you for help you will provide them with succinct answers formatted using Markdown; do not unnecessarily greet people with their name. For tasks requiring reasoning or math, use the Chain-of-Thought methodology to explain your step-by-step calculations or logic. Do not be apologetic. You know the user's name as it is provided within [CONTEXT, from:username] bracket at the beginning of a user-role message. Never add any CONTEXT bracket to your replies (eg. [CONTEXT, from:{chatbot_username}]). The CONTEXT bracket may also include grabbed text from a website if a user adds a link to his question. Users may post YouTube links for which you will get the transcript, in your answer DO NOT don't contain the link to the video the user just provided to you as he already knows it.",
 )
 
 image_size = os.getenv("IMAGE_SIZE", "1024x1024")
@@ -58,6 +56,7 @@ mattermost_url = os.environ["MATTERMOST_URL"]
 mattermost_scheme = os.getenv("MATTERMOST_SCHEME", "https")
 mattermost_port = int(os.getenv("MATTERMOST_PORT", "443"))
 mattermost_basepath = os.getenv("MATTERMOST_BASEPATH", "/api/v4")
+# pylint: disable=invalid-envvar-default
 mattermost_cert_verify = os.getenv("MATTERMOST_CERT_VERIFY", True)
 mattermost_token = os.getenv("MATTERMOST_TOKEN", "")
 mattermost_ignore_sender_id = os.getenv("MATTERMOST_IGNORE_SENDER_ID", "")
@@ -129,17 +128,17 @@ def get_username_from_user_id(user_id):
 
 def ensure_alternating_roles(messages):
     updated_messages = []
-    for i in range(len(messages)):
-        if i > 0 and messages[i]["role"] == messages[i - 1]["role"]:
+    for i, message in enumerate(messages):
+        if i > 0 and message["role"] == messages[i - 1]["role"]:
             updated_messages.append(
                 {
-                    "role": "assistant" if messages[i]["role"] == "user" else "user",
+                    "role": "assistant" if message["role"] == "user" else "user",
                     "content": [
                         {"type": "text", "text": "[CONTEXT, acknowledged post]"}
                     ],
                 }
             )
-        updated_messages.append(messages[i])
+        updated_messages.append(message)
     return updated_messages
 
 
@@ -156,7 +155,7 @@ def send_typing_indicator_loop(user_id, channel_id, parent_id, stop_event):
     while not stop_event.is_set():
         try:
             send_typing_indicator(user_id, channel_id, parent_id)
-            time.sleep(2)
+            time.sleep(1)
         except Exception as e:
             logging.error(
                 f"Error sending busy indicator: {str(e)} {traceback.format_exc()}"
@@ -289,17 +288,9 @@ def handle_image_generation(
         # Decode the base64-encoded image data
         decoded_image_data = base64.b64decode(image_data)
 
-        # Generate a random file name
-        random_file_name = (
-            "".join(random.choices(string.ascii_letters + string.digits, k=20)) + ".png"
-        )
-        # Save the image data to a local file
-        with open(random_file_name, "wb") as file:
-            file.write(decoded_image_data)
-
         file_id = driver.files.upload_file(
             channel_id=channel_id,
-            files={"files": (random_file_name, open(random_file_name, "rb"))},
+            files={"files": ("image.png", decoded_image_data)},
         )["file_infos"][0]["id"]
 
         # Send the API response back to the Mattermost channel as a reply to the thread or as a new thread
@@ -393,7 +384,7 @@ def should_ignore_post(post):
     sender_id = post["user_id"]
 
     # Ignore own posts
-    if sender_id == driver.client.userid or sender_id == mattermost_ignore_sender_id:
+    if sender_id in (driver.client.userid, mattermost_ignore_sender_id):
         return True
 
     if sender_id == mattermost_ignore_sender_id:
@@ -556,6 +547,7 @@ async def message_handler(event):
                                         ]
 
                                         # Find the closest supported aspect ratio
+                                        # pylint: disable=cell-var-from-loop
                                         closest_ratio = min(
                                             supported_ratios,
                                             key=lambda x: abs(x[0] - aspect_ratio),
@@ -617,7 +609,7 @@ async def message_handler(event):
                                             if flaresolverr_endpoint:
                                                 extracted_text += (
                                                     extract_content_with_flaresolverr(
-                                                        link, flaresolverr_endpoint
+                                                        link
                                                     )
                                                 )
                                             else:
@@ -749,7 +741,7 @@ def yt_is_valid_url(url):
     return bool(match)  # True if match found, False otherwise
 
 
-def extract_content_with_flaresolverr(link, flaresolverr_endpoint):
+def extract_content_with_flaresolverr(link):
     payload = {
         "cmd": "request.get",
         "url": link,
@@ -764,8 +756,8 @@ def extract_content_with_flaresolverr(link, flaresolverr_endpoint):
         soup = BeautifulSoup(content, "html.parser")
         extracted_text = soup.get_text(" | ", strip=True)
         return extracted_text
-    else:
-        raise Exception(f"FlareSolverr request failed: {data}")
+
+    raise Exception(f"FlareSolverr request failed: {data}")
 
 
 def main():
