@@ -57,8 +57,7 @@ mattermost_url = os.environ["MATTERMOST_URL"]
 mattermost_scheme = os.getenv("MATTERMOST_SCHEME", "https")
 mattermost_port = int(os.getenv("MATTERMOST_PORT", "443"))
 mattermost_basepath = os.getenv("MATTERMOST_BASEPATH", "/api/v4")
-# pylint: disable=invalid-envvar-default
-mattermost_cert_verify = os.getenv("MATTERMOST_CERT_VERIFY", True)
+mattermost_cert_verify = os.getenv("MATTERMOST_CERT_VERIFY", True)  # pylint: disable=invalid-envvar-default
 mattermost_token = os.getenv("MATTERMOST_TOKEN", "")
 mattermost_ignore_sender_id = os.getenv("MATTERMOST_IGNORE_SENDER_ID", "")
 mattermost_username = os.getenv("MATTERMOST_USERNAME", "")
@@ -71,7 +70,9 @@ flaresolverr_endpoint = os.getenv("FLARESOLVERR_ENDPOINT", "")
 max_response_size = 1024 * 1024 * int(os.getenv("MAX_RESPONSE_SIZE_MB", "100"))
 
 # For filtering local links
-regex_local_links = r"(?:127\.|192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[0-1])\.|::1|(?<![:.\w])[fF][cCdD](?![:.\w])|localhost)"
+regex_local_links = (
+    r"(?:127\.|192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[0-1])\.|::1|(?<![:.\w])[fF][cCdD](?![:.\w])|localhost)"
+)
 
 # Create a driver instance
 driver = Driver(
@@ -100,12 +101,8 @@ thread_pool = concurrent.futures.ThreadPoolExecutor(max_workers=5)
 
 
 def get_system_instructions():
-    current_time = datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%d %H:%M:%S.%f")[
-        :-3
-    ]
-    return system_prompt_unformatted.format(
-        current_time=current_time, chatbot_username=chatbot_username
-    )
+    current_time = datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+    return system_prompt_unformatted.format(current_time=current_time, chatbot_username=chatbot_username)
 
 
 def sanitize_username(username):
@@ -121,9 +118,7 @@ def get_username_from_user_id(user_id):
         user = driver.users.get_user(user_id)
         return sanitize_username(user["username"])
     except Exception as e:
-        logger.error(
-            f"Error retrieving username for user ID {user_id}: {str(e)} {traceback.format_exc()}"
-        )
+        logger.error(f"Error retrieving username for user ID {user_id}: {str(e)} {traceback.format_exc()}")
         return f"Unknown_{user_id}"
 
 
@@ -134,9 +129,7 @@ def ensure_alternating_roles(messages):
             updated_messages.append(
                 {
                     "role": "assistant" if message["role"] == "user" else "user",
-                    "content": [
-                        {"type": "text", "text": "[CONTEXT, acknowledged post]"}
-                    ],
+                    "content": [{"type": "text", "text": "[CONTEXT, acknowledged post]"}],
                 }
             )
         updated_messages.append(message)
@@ -158,9 +151,7 @@ def send_typing_indicator_loop(user_id, channel_id, parent_id, stop_event):
             send_typing_indicator(user_id, channel_id, parent_id)
             time.sleep(1)
         except Exception as e:
-            logging.error(
-                f"Error sending busy indicator: {str(e)} {traceback.format_exc()}"
-            )
+            logging.error(f"Error sending busy indicator: {str(e)} {traceback.format_exc()}")
 
 
 def handle_typing_indicator(user_id, channel_id, parent_id):
@@ -226,9 +217,7 @@ def split_message(msg, max_length=4000):
             else:
                 # Starting a new code block, capture the language
                 in_code_block = True
-                code_block_lang = line[
-                    3:
-                ].strip()  # Remove the backticks and get the language
+                code_block_lang = line[3:].strip()  # Remove the backticks and get the language
                 current_chunk += line + "\n"
         else:
             # If adding this line exceeds the max length, we need to split here
@@ -236,15 +225,11 @@ def split_message(msg, max_length=4000):
                 # Split here, preserve the code block state and language if necessary
                 current_chunk = add_chunk(current_chunk, in_code_block, code_block_lang)
                 current_chunk += line
-                if (
-                    i < len(lines) - 1
-                ):  # Avoid adding a newline at the end of the last line
+                if i < len(lines) - 1:  # Avoid adding a newline at the end of the last line
                     current_chunk += "\n"
             else:
                 current_chunk += line
-                if (
-                    i < len(lines) - 1
-                ):  # Avoid adding a newline at the end of the last line
+                if i < len(lines) - 1:  # Avoid adding a newline at the end of the last line
                     current_chunk += "\n"
 
     # Don't forget to add the last chunk
@@ -254,18 +239,14 @@ def split_message(msg, max_length=4000):
     return chunks
 
 
-def handle_image_generation(
-    last_message, messages, channel_id, root_id, sender_name, links
-):
+def handle_image_generation(last_message, messages, channel_id, root_id, sender_name, links):
     # Check if "#draw " is present in any case and replace the first occurrence
     if re.search(r"#draw ", last_message, re.IGNORECASE):
         last_message = re.sub(r"#draw ", "", last_message, count=1, flags=re.IGNORECASE)
         last_message = f"I NEED to test how the tool works with extremely simple prompts. DO NOT add any detail, just use it AS-IS: {last_message}"
     else:
         # If "#draw " is not found, replace the first occurrence of "draw " in any case
-        last_message = re.sub(
-            r"\bdraw ", "", last_message, count=1, flags=re.IGNORECASE
-        )
+        last_message = re.sub(r"\bdraw ", "", last_message, count=1, flags=re.IGNORECASE)
 
     response = ai_client.images.generate(
         model="dall-e-3",
@@ -288,7 +269,9 @@ def handle_image_generation(
     file_id = driver.files.upload_file(
         channel_id=channel_id,
         files={"files": ("image.png", decoded_image_data)},
-    )["file_infos"][0]["id"]
+    )[
+        "file_infos"
+    ][0]["id"]
 
     # Send the API response back to the Mattermost channel as a reply to the thread or as a new thread
     driver.posts.create_post(
@@ -301,9 +284,7 @@ def handle_image_generation(
     )
 
 
-def handle_text_generation(
-    last_message, messages, channel_id, root_id, sender_name, links
-):
+def handle_text_generation(last_message, messages, channel_id, root_id, sender_name, links):
     # Send the messages to the AI API
     response = ai_client.chat.completions.create(
         model=model,
@@ -333,9 +314,7 @@ def handle_text_generation(
     # Send each part of the response as a separate message
     for part in response_parts:
         # Send the API response back to the Mattermost channel as a reply to the thread or as a new thread
-        driver.posts.create_post(
-            {"channel_id": channel_id, "message": part, "root_id": root_id}
-        )
+        driver.posts.create_post({"channel_id": channel_id, "message": part, "root_id": root_id})
 
 
 def process_message(last_message, messages, channel_id, root_id, sender_name, links):
@@ -345,25 +324,17 @@ def process_message(last_message, messages, channel_id, root_id, sender_name, li
         logger.info("Querying AI API")
 
         # Start the typing indicator
-        stop_typing_event, typing_indicator_thread = handle_typing_indicator(
-            driver.client.userid, channel_id, root_id
-        )
+        stop_typing_event, typing_indicator_thread = handle_typing_indicator(driver.client.userid, channel_id, root_id)
 
         # Check if "draw " is present in any case
         if re.search(r"\bdraw ", last_message, re.IGNORECASE):
-            handle_image_generation(
-                last_message, messages, channel_id, root_id, sender_name, links
-            )
+            handle_image_generation(last_message, messages, channel_id, root_id, sender_name, links)
         else:
-            handle_text_generation(
-                last_message, messages, channel_id, root_id, sender_name, links
-            )
+            handle_text_generation(last_message, messages, channel_id, root_id, sender_name, links)
 
     except Exception as e:
         logging.error(f"Error: {str(e)} {traceback.format_exc()}")
-        driver.posts.create_post(
-            {"channel_id": channel_id, "message": str(e), "root_id": root_id}
-        )
+        driver.posts.create_post({"channel_id": channel_id, "message": str(e), "root_id": root_id})
 
     finally:
         if stop_typing_event is not None:
@@ -414,11 +385,7 @@ def get_thread_posts(root_id, post_id):
         if thread_post["id"] != post_id:
             thread_sender_name = get_username_from_user_id(thread_post["user_id"])
             thread_message = thread_post["message"]
-            role = (
-                "assistant"
-                if thread_post["user_id"] == driver.client.userid
-                else "user"
-            )
+            role = "assistant" if thread_post["user_id"] == driver.client.userid else "user"
             messages.append(
                 {
                     "role": role,
@@ -453,8 +420,8 @@ async def message_handler(event):
                 logging.info("Ignoring post from a bot")
                 return
 
-            message, channel_id, sender_name, root_id, post_id, channel_display_name = (
-                extract_post_data(post, event_data)
+            message, channel_id, sender_name, root_id, post_id, channel_display_name = extract_post_data(
+                post, event_data
             )
 
             try:
@@ -463,20 +430,12 @@ async def message_handler(event):
 
                 # Retrieve the thread context
                 if root_id:
-                    thread_messages, chatbot_invoked = get_thread_posts(
-                        root_id, post_id
-                    )
+                    thread_messages, chatbot_invoked = get_thread_posts(root_id, post_id)
                     messages.extend(thread_messages)
 
                 # Add the current message to the messages array if "@chatbot" is mentioned, the chatbot has already been invoked in the thread or its a DM
-                if (
-                    chatbot_username_at in post["message"]
-                    or chatbot_invoked
-                    or channel_display_name.startswith("@")
-                ):
-                    links = re.findall(
-                        r"(https?://\S+)", message
-                    )  # Allow both http and https links
+                if chatbot_username_at in post["message"] or chatbot_invoked or channel_display_name.startswith("@"):
+                    links = re.findall(r"(https?://\S+)", message)  # Allow both http and https links
                     extracted_text = ""
                     total_size = 0
                     image_messages = []
@@ -488,9 +447,7 @@ async def message_handler(event):
                                 continue
                             try:
                                 if yt_is_valid_url(link):
-                                    title, description, uploader = yt_get_video_info(
-                                        link
-                                    )
+                                    title, description, uploader = yt_get_video_info(link)
                                     transcript = yt_get_transcript(link)
                                     extracted_text += f"""
                                     <youtube_video_details>
@@ -502,20 +459,14 @@ async def message_handler(event):
                                     """
                                     continue
 
-                                with client.stream(
-                                    "GET", link, timeout=4, follow_redirects=True
-                                ) as response:
+                                with client.stream("GET", link, timeout=4, follow_redirects=True) as response:
                                     final_url = str(response.url)
 
                                     if re.search(regex_local_links, final_url):
-                                        logging.info(
-                                            f"Skipping local URL after redirection: {final_url}"
-                                        )
+                                        logging.info(f"Skipping local URL after redirection: {final_url}")
                                         continue
 
-                                    content_type = response.headers.get(
-                                        "content-type", ""
-                                    ).lower()
+                                    content_type = response.headers.get("content-type", "").lower()
                                     if "image" in content_type:
                                         # Check for compatible content types
                                         compatible_content_types = [
@@ -525,9 +476,7 @@ async def message_handler(event):
                                             "image/webp",
                                         ]
                                         if content_type not in compatible_content_types:
-                                            raise Exception(
-                                                f"Unsupported image content type: {content_type}"
-                                            )
+                                            raise Exception(f"Unsupported image content type: {content_type}")
 
                                         # Handle image content
                                         image_data = b""
@@ -575,9 +524,7 @@ async def message_handler(event):
 
                                         # Save the resized image to a BytesIO object
                                         buffer = BytesIO()
-                                        resized_image.save(
-                                            buffer, format=image.format, optimize=True
-                                        )
+                                        resized_image.save(buffer, format=image.format, optimize=True)
                                         resized_image_data = buffer.getvalue()
 
                                         # Check if the resized image size exceeds 3MB
@@ -598,39 +545,25 @@ async def message_handler(event):
                                                 quality -= 5
 
                                                 if quality <= 0:
-                                                    raise Exception(
-                                                        "Image too large, can't compress"
-                                                    )
+                                                    raise Exception("Image too large, can't compress")
 
-                                        image_data_base64 = base64.b64encode(
-                                            resized_image_data
-                                        ).decode("utf-8")
+                                        image_data_base64 = base64.b64encode(resized_image_data).decode("utf-8")
                                         image_messages.append(
                                             {
                                                 "type": "image_url",
-                                                "image_url": {
-                                                    "url": f"data:{content_type};base64,{image_data_base64}"
-                                                },
+                                                "image_url": {"url": f"data:{content_type};base64,{image_data_base64}"},
                                             }
                                         )
                                     else:
                                         # Handle text content
                                         try:
                                             if flaresolverr_endpoint:
-                                                website_text = (
-                                                    extract_content_with_flaresolverr(
-                                                        link
-                                                    )
-                                                )
+                                                website_text = extract_content_with_flaresolverr(link)
                                                 extracted_text += f"<website_extracted_text_content>{website_text}</website_extracted_text_content>"
                                             else:
-                                                raise Exception(
-                                                    "FlareSolverr endpoint not available"
-                                                )
+                                                raise Exception("FlareSolverr endpoint not available")
                                         except Exception as e:
-                                            logging.info(
-                                                f"Falling back to HTTPX. Reason: {str(e)}"
-                                            )
+                                            logging.info(f"Falling back to HTTPX. Reason: {str(e)}")
 
                                         content_chunks = []
                                         for chunk in response.iter_bytes():
@@ -638,9 +571,7 @@ async def message_handler(event):
                                             total_size += len(chunk)
                                             if total_size > max_response_size:
                                                 extracted_text += "<chatbot_error>website size exceeded the maximum limit for the chatbot, warn the chatbot user</chatbot_error>"
-                                                raise Exception(
-                                                    "Response size exceeds the maximum limit"
-                                                )
+                                                raise Exception("Response size exceeds the maximum limit")
                                         content = b"".join(content_chunks)
                                         soup = BeautifulSoup(content, "html.parser")
                                         website_text = soup.get_text(" | ", strip=True)
@@ -683,16 +614,12 @@ async def message_handler(event):
                     )
 
             except Exception as e:
-                logging.error(
-                    f"Error inner message handler: {str(e)} {traceback.format_exc()}"
-                )
+                logging.error(f"Error inner message handler: {str(e)} {traceback.format_exc()}")
         else:
             # Handle other events
             pass
     except json.JSONDecodeError:
-        logging.error(
-            f"Failed to parse event as JSON: {event} {traceback.format_exc()}"
-        )
+        logging.error(f"Failed to parse event as JSON: {event} {traceback.format_exc()}")
     except Exception as e:
         logging.error(f"Error message_handler: {str(e)} {traceback.format_exc()}")
 
@@ -725,7 +652,9 @@ def yt_find_preferred_transcript(video_id):
 
 
 def yt_extract_video_id(url):
-    pattern = r"(?:youtube\.com/(?:[^/]+/.+/|(?:v|e(?:mbed)?)/|.*[?&]v=)|youtu\.be/|youtube\.com/shorts/)([^\"&?/\s]{11})"
+    pattern = (
+        r"(?:youtube\.com/(?:[^/]+/.+/|(?:v|e(?:mbed)?)/|.*[?&]v=)|youtu\.be/|youtube\.com/shorts/)([^\"&?/\s]{11})"
+    )
     match = re.search(pattern, url)
     return match.group(1) if match else None
 
@@ -762,7 +691,9 @@ def yt_get_video_info(url):
 
 def yt_is_valid_url(url):
     # Pattern to match various YouTube URL formats including video IDs
-    pattern = r"(?:youtube\.com/(?:[^/]+/.+/|(?:v|e(?:mbed)?)/|.*[?&]v=)|youtu\.be/|youtube\.com/shorts/)([^\"&?/\s]{11})"
+    pattern = (
+        r"(?:youtube\.com/(?:[^/]+/.+/|(?:v|e(?:mbed)?)/|.*[?&]v=)|youtu\.be/|youtube\.com/shorts/)([^\"&?/\s]{11})"
+    )
     match = re.search(pattern, url)
     return bool(match)  # True if match found, False otherwise
 
@@ -802,9 +733,7 @@ def main():
                 # Initialize the WebSocket connection
                 driver.init_websocket(message_handler)
             except Exception as e:
-                logging.error(
-                    f"Error initializing WebSocket: {str(e)} {traceback.format_exc()}"
-                )
+                logging.error(f"Error initializing WebSocket: {str(e)} {traceback.format_exc()}")
             time.sleep(2)
 
     except KeyboardInterrupt:
