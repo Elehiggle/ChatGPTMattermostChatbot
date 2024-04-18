@@ -19,8 +19,12 @@ from youtube_transcript_api import YouTubeTranscriptApi
 from yt_dlp import YoutubeDL
 from openai import OpenAI
 
-logging.basicConfig(level=logging.INFO)
+log_level_root = os.getenv("LOG_LEVEL_ROOT", "INFO")
+logging.basicConfig(level=log_level_root)
+
+log_level = os.getenv("LOG_LEVEL", "INFO")
 logger = logging.getLogger(__name__)
+logger.setLevel(log_level)
 
 # save the original create_default_context function so we can call it later
 create_default_context_orig = ssl.create_default_context
@@ -151,7 +155,7 @@ def send_typing_indicator_loop(user_id, channel_id, parent_id, stop_event):
             send_typing_indicator(user_id, channel_id, parent_id)
             time.sleep(1)
         except Exception as e:
-            logging.error(f"Error sending busy indicator: {str(e)} {traceback.format_exc()}")
+            logger.error(f"Error sending busy indicator: {str(e)} {traceback.format_exc()}")
 
 
 def handle_typing_indicator(user_id, channel_id, parent_id):
@@ -333,7 +337,7 @@ def process_message(last_message, messages, channel_id, root_id, sender_name, li
             handle_text_generation(last_message, messages, channel_id, root_id, sender_name, links)
 
     except Exception as e:
-        logging.error(f"Error: {str(e)} {traceback.format_exc()}")
+        logger.error(f"Error: {str(e)} {traceback.format_exc()}")
         driver.posts.create_post({"channel_id": channel_id, "message": str(e), "root_id": root_id})
 
     finally:
@@ -351,11 +355,11 @@ def should_ignore_post(post):
         return True
 
     if sender_id == mattermost_ignore_sender_id:
-        logging.info("Ignoring post from an ignored sender ID")
+        logger.info("Ignoring post from an ignored sender ID")
         return True
 
     if post.get("props", {}).get("from_bot") == "true":
-        logging.info("Ignoring post from a bot")
+        logger.info("Ignoring post from a bot")
         return True
 
     return False
@@ -407,9 +411,9 @@ def get_thread_posts(root_id, post_id):
 async def message_handler(event):
     try:
         event_data = json.loads(event)
-        logging.info(f"Received event: {event_data}")
+        logger.debug(f"Received event: {event_data}")
         if event_data.get("event") == "hello":
-            logging.info("Received 'hello' event. WebSocket connection established.")
+            logger.info("WebSocket connection established.")
         elif event_data.get("event") == "posted":
             post = json.loads(event_data["data"]["post"])
             if should_ignore_post(post):
@@ -417,7 +421,7 @@ async def message_handler(event):
 
             # Check if the post is from a bot
             if post.get("props", {}).get("from_bot") == "true":
-                logging.info("Ignoring post from a bot")
+                logger.info("Ignoring post from a bot")
                 return
 
             message, channel_id, sender_name, root_id, post_id, channel_display_name = extract_post_data(
@@ -443,7 +447,7 @@ async def message_handler(event):
                     with httpx.Client() as client:
                         for link in links:
                             if re.search(regex_local_links, link):
-                                logging.info(f"Skipping local URL: {link}")
+                                logger.info(f"Skipping local URL: {link}")
                                 continue
                             try:
                                 if yt_is_valid_url(link):
@@ -459,11 +463,12 @@ async def message_handler(event):
                                     """
                                     continue
 
+                                # By doing the redirect itself, we might already allow a local request?
                                 with client.stream("GET", link, timeout=4, follow_redirects=True) as response:
                                     final_url = str(response.url)
 
                                     if re.search(regex_local_links, final_url):
-                                        logging.info(f"Skipping local URL after redirection: {final_url}")
+                                        logger.info(f"Skipping local URL after redirection: {final_url}")
                                         continue
 
                                     content_type = response.headers.get("content-type", "").lower()
@@ -563,7 +568,7 @@ async def message_handler(event):
                                             else:
                                                 raise Exception("FlareSolverr endpoint not available")
                                         except Exception as e:
-                                            logging.info(f"Falling back to HTTPX. Reason: {str(e)}")
+                                            logger.info(f"Falling back to HTTPX. Reason: {str(e)}")
 
                                         content_chunks = []
                                         for chunk in response.iter_bytes():
@@ -577,7 +582,7 @@ async def message_handler(event):
                                         website_text = soup.get_text(" | ", strip=True)
                                         extracted_text += f"<website_extracted_text_content>{website_text}</website_extracted_text_content>"
                             except Exception as e:
-                                logging.error(
+                                logger.error(
                                     f"Error extracting content from link {link}: {str(e)} {traceback.format_exc()}"
                                 )
 
@@ -614,14 +619,14 @@ async def message_handler(event):
                     )
 
             except Exception as e:
-                logging.error(f"Error inner message handler: {str(e)} {traceback.format_exc()}")
+                logger.error(f"Error inner message handler: {str(e)} {traceback.format_exc()}")
         else:
             # Handle other events
             pass
     except json.JSONDecodeError:
-        logging.error(f"Failed to parse event as JSON: {event} {traceback.format_exc()}")
+        logger.error(f"Failed to parse event as JSON: {event} {traceback.format_exc()}")
     except Exception as e:
-        logging.error(f"Error message_handler: {str(e)} {traceback.format_exc()}")
+        logger.error(f"Error message_handler: {str(e)} {traceback.format_exc()}")
 
 
 def yt_find_preferred_transcript(video_id):
@@ -668,7 +673,7 @@ def yt_get_transcript(url):
             transcript = preferred_transcript.fetch()
             return str(transcript)
     except Exception as e:
-        logging.info(f"YouTube Transcript Exception: {str(e)}")
+        logger.info(f"YouTube Transcript Exception: {str(e)}")
 
     return "<chatbot_error>could not fetch the video transcript for the chatbot, warn the chatbot user</chatbot_error>"
 
@@ -725,7 +730,7 @@ def main():
         chatbot_username = driver.client.username
         chatbot_username_at = f"@{chatbot_username}"
 
-        logging.info(f"SYSTEM PROMPT: {get_system_instructions()}")
+        logger.debug(f"SYSTEM PROMPT: {get_system_instructions()}")
 
         # Initialize the WebSocket connection
         while True:
@@ -733,14 +738,14 @@ def main():
                 # Initialize the WebSocket connection
                 driver.init_websocket(message_handler)
             except Exception as e:
-                logging.error(f"Error initializing WebSocket: {str(e)} {traceback.format_exc()}")
+                logger.error(f"Error initializing WebSocket: {str(e)} {traceback.format_exc()}")
             time.sleep(2)
 
     except KeyboardInterrupt:
         logger.info("KeyboardInterrupt, logout and exit")
         driver.logout()
     except Exception as e:
-        logging.error(f"Error: {str(e)} {traceback.format_exc()}")
+        logger.error(f"Error: {str(e)} {traceback.format_exc()}")
 
 
 if __name__ == "__main__":
