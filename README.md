@@ -32,7 +32,6 @@ This project is a chatbot for Mattermost that integrates with the OpenAI API to 
 - Python 3.11 or just a server with [Docker](https://docs.docker.com/get-started/) _(you can get away with using 3.8 if
   you use datetime.datetime.utcnow() instead of datetime.datetime.now(datetime.UTC))_
 - OpenAI API key
-- Mattermost server with bot account token access or a dedicated user account
 - Mattermost Bot token (alternatively personal access token or login/password for a dedicated Mattermost user account for the chatbot)
 - The bot account needs to be added to the team and to the channels you want it to watch
 

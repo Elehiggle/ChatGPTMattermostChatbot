@@ -49,7 +49,7 @@ max_tokens = int(os.getenv("MAX_TOKENS", "4096"))
 temperature = float(os.getenv("TEMPERATURE", "1"))
 system_prompt_unformatted = os.getenv(
     "AI_SYSTEM_PROMPT",
-    "You are a helpful assistant. The current UTC time is {current_time}. Whenever users asks you for help you will provide them with succinct answers formatted using Markdown; do not unnecessarily greet people with their name. For tasks requiring reasoning or math, use the Chain-of-Thought methodology to explain your step-by-step calculations or logic. Do not be apologetic. You know the user's name as it is provided within [CONTEXT, from:username] bracket at the beginning of a user-role message. Never add any CONTEXT bracket to your replies (eg. [CONTEXT, from:{chatbot_username}]). The CONTEXT bracket may also include grabbed text from a website if a user adds a link to his question. Users may post YouTube links for which you will get the transcript, in your answer DO NOT don't contain the link to the video the user just provided to you as he already knows it.",
+    "You are a helpful assistant. The current UTC time is {current_time}. Whenever users asks you for help you will provide them with succinct answers formatted using Markdown; do not unnecessarily greet people with their name. For tasks requiring reasoning or math, use the Chain-of-Thought methodology to explain your step-by-step calculations or logic. Do not be apologetic. You know the user's name as it is provided within [CONTEXT, from:username] bracket at the beginning of a user-role message. Never add any CONTEXT bracket to your replies (eg. [CONTEXT, from:{chatbot_username}]). The CONTEXT bracket may also include grabbed text from a website if a user adds a link to his question. Users may post YouTube links for which you will get the transcript and other details, in your answer DO NOT don't contain the link to the video the user just provided to you as he already knows it. If an error occurred for any action, the message will also contain a <chatbot_error> with more information which you can provide to the user.",
 )
 
 image_size = os.getenv("IMAGE_SIZE", "1024x1024")
@@ -124,20 +124,6 @@ def get_username_from_user_id(user_id):
     except Exception as e:
         logger.error(f"Error retrieving username for user ID {user_id}: {str(e)} {traceback.format_exc()}")
         return f"Unknown_{user_id}"
-
-
-def ensure_alternating_roles(messages):
-    updated_messages = []
-    for i, message in enumerate(messages):
-        if i > 0 and message["role"] == messages[i - 1]["role"]:
-            updated_messages.append(
-                {
-                    "role": "assistant" if message["role"] == "user" else "user",
-                    "content": [{"type": "text", "text": "[CONTEXT, acknowledged post]"}],
-                }
-            )
-        updated_messages.append(message)
-    return updated_messages
 
 
 def send_typing_indicator(user_id, channel_id, parent_id):
@@ -451,16 +437,27 @@ async def message_handler(event):
                                 continue
                             try:
                                 if yt_is_valid_url(link):
-                                    title, description, uploader = yt_get_video_info(link)
-                                    transcript = yt_get_transcript(link)
-                                    extracted_text += f"""
-                                    <youtube_video_details>
-                                        <title>{title}</title>
-                                        <description>{description}</description>
-                                        <uploader>{uploader}</uploader>
-                                        <transcript>{transcript}</transcript>
-                                    </youtube_video_details>
-                                    """
+                                    try:
+                                        transcript = yt_get_transcript(link)
+                                        title, description, uploader = yt_get_video_info(link)
+                                        extracted_text += f"""
+                                        <youtube_video_details>
+                                            <url>{link}</url>
+                                            <title>{title}</title>
+                                            <description>{description}</description>
+                                            <uploader>{uploader}</uploader>
+                                            <transcript>{transcript}</transcript>
+                                        </youtube_video_details>
+                                        """
+                                    except Exception as e:
+                                        # Can happen when there are simply no subtitles available
+                                        logger.info(f"YouTube Fetch Exception: {str(e)}")
+                                        extracted_text += f"""
+                                        <youtube_video_details>
+                                            <url>{link}</url>
+                                            <chatbot_error>could not fetch the video details for the chatbot, warn the chatbot user</chatbot_error>
+                                        </youtube_video_details>
+                                        """
                                     continue
 
                                 # By doing the redirect itself, we might already allow a local request?
@@ -602,9 +599,6 @@ async def message_handler(event):
                             }
                         )
 
-                    # Ensure alternating roles in the messages array
-                    messages = ensure_alternating_roles(messages)
-
                     # Submit the task to the thread pool. We do this because Mattermostdriver-async is outdated
                     thread_pool.submit(
                         process_message,
@@ -665,17 +659,14 @@ def yt_extract_video_id(url):
 
 
 def yt_get_transcript(url):
-    try:
-        video_id = yt_extract_video_id(url)
-        preferred_transcript = yt_find_preferred_transcript(video_id)
+    video_id = yt_extract_video_id(url)
+    preferred_transcript = yt_find_preferred_transcript(video_id)
 
-        if preferred_transcript:
-            transcript = preferred_transcript.fetch()
-            return str(transcript)
-    except Exception as e:
-        logger.info(f"YouTube Transcript Exception: {str(e)}")
+    if preferred_transcript:
+        transcript = preferred_transcript.fetch()
+        return str(transcript)
 
-    return "<chatbot_error>could not fetch the video transcript for the chatbot, warn the chatbot user</chatbot_error>"
+    raise Exception("Error getting the YouTube transcript")
 
 
 def yt_get_video_info(url):
