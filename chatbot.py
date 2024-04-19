@@ -599,8 +599,6 @@ async def message_handler(event):
                             }
                         )
 
-                    print(messages)
-
                     # Submit the task to the thread pool. We do this because Mattermostdriver-async is outdated
                     thread_pool.submit(
                         process_message,
