@@ -306,6 +306,9 @@ def handle_text_generation(last_message, messages, channel_id, root_id, sender_n
     # Extract the text content
     response_text = response.choices[0].message.content
 
+    # Failsafe in case bot replies with XML tags until we come up with a better system prompt
+    response_text = re.sub(r'(?s).*?<message>(.*?)</message>.*', r'\1', response_text).strip()
+
     # Split the response into multiple messages if necessary
     response_parts = split_message(response_text)
 
