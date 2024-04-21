@@ -9,6 +9,7 @@ import datetime
 import logging
 import concurrent.futures
 import base64
+from functools import lru_cache
 from io import BytesIO
 import certifi
 import httpx
@@ -60,10 +61,9 @@ system_prompt_unformatted = os.getenv(
     Whenever users asks you for help you will provide them with succinct answers formatted using Markdown. Do not unnecessarily greet people with their name, 
     do not be apologetic. 
     For tasks requiring reasoning or math, use the Chain-of-Thought methodology to explain your step-by-step calculations or logic. 
-    An example chat_event from the user to you would be: <chat_event><username>frank</username><message>hi, what is the opposite of night?</message></chat_event> 
-    Your response to this would NOT contain these XML tags, these XML tags are only sent to YOU exclusively for your own understanding. 
-    DO NOT contain them in your responses unless specifically instructed by the user; a list of example XML tags that can be sent to you: <chat_event> <username> <message> 
-    <youtube_video_details> <url> <title> <description> <uploader> <transcript> <chatbot_error> <website_data> <website_data_all> <exception> <url_content> 
+    Messages sent to you might contain XML tags, these XML tags are only sent to YOU exclusively for your own understanding. 
+    A list of example XML tags that can be sent to you:  
+    <youtube_video_details> <url> <title> <description> <uploader> <transcript> <chatbot_error> <website_data> <exception> <url_content> 
     If a user sends a link, use the extracted content provided in the XML tags, do not assume or make up stories based on the URL alone.
     In your answer DO NOT contain the link to the video/website the user just provided to you as the user already knows it, unless the task requires it. 
     If your response contains any URLs, make sure to properly escape them using Markdown syntax for display purposes. 
@@ -91,6 +91,8 @@ flaresolverr_endpoint = os.getenv("FLARESOLVERR_ENDPOINT", "")
 
 # Maximum website size
 max_response_size = 1024 * 1024 * int(os.getenv("MAX_RESPONSE_SIZE_MB", "100"))
+
+keep_all_url_content = os.getenv("KEEP_ALL_URL_CONTENT", "TRUE").upper() == "TRUE"
 
 # For filtering local links
 regex_local_links = (
@@ -128,6 +130,7 @@ def get_system_instructions():
     return system_prompt_unformatted.format(current_time=current_time, chatbot_username=chatbot_username)
 
 
+@lru_cache(maxsize=1000)
 def sanitize_username(username):
     if not re.match(r"^[a-zA-Z0-9_-]{1,64}$", username):
         username = re.sub(r"[.@!?]", "", username)[:64]
@@ -136,6 +139,7 @@ def sanitize_username(username):
     return username
 
 
+@lru_cache(maxsize=1000)
 def get_username_from_user_id(user_id):
     try:
         user = driver.users.get_user(user_id)
@@ -248,18 +252,18 @@ def split_message(msg, max_length=4000):
     return chunks
 
 
-def handle_image_generation(last_message, messages, channel_id, root_id, sender_name, links):
+def handle_image_generation(current_message, messages, channel_id, root_id):
     # Check if "#draw " is present in any case and replace the first occurrence
-    if re.search(r"#draw ", last_message, re.IGNORECASE):
-        last_message = re.sub(r"#draw ", "", last_message, count=1, flags=re.IGNORECASE)
-        last_message = f"I NEED to test how the tool works with extremely simple prompts. DO NOT add any detail, just use it AS-IS: {last_message}"
+    if re.search(r"#draw ", current_message, re.IGNORECASE):
+        current_message = re.sub(r"#draw ", "", current_message, count=1, flags=re.IGNORECASE)
+        current_message = f"I NEED to test how the tool works with extremely simple prompts. DO NOT add any detail, just use it AS-IS: {current_message}"
     else:
         # If "#draw " is not found, replace the first occurrence of "draw " in any case
-        last_message = re.sub(r"\bdraw ", "", last_message, count=1, flags=re.IGNORECASE)
+        current_message = re.sub(r"\bdraw ", "", current_message, count=1, flags=re.IGNORECASE)
 
     response = ai_client.images.generate(
         model="dall-e-3",
-        prompt=last_message,
+        prompt=current_message,
         size=image_size,  # type: ignore
         quality=image_quality,  # type: ignore
         style=image_style,  # type: ignore
@@ -293,7 +297,7 @@ def handle_image_generation(last_message, messages, channel_id, root_id, sender_
     )
 
 
-def handle_text_generation(last_message, messages, channel_id, root_id, sender_name, links):
+def handle_text_generation(current_message, messages, channel_id, root_id):
     # Send the messages to the AI API
     response = ai_client.chat.completions.create(
         model=model,
@@ -306,9 +310,6 @@ def handle_text_generation(last_message, messages, channel_id, root_id, sender_n
     # Extract the text content
     response_text = response.choices[0].message.content
 
-    # Failsafe in case bot replies with XML tags until we come up with a better system prompt
-    response_text = re.sub(r'(?s).*?<message>(.*?)</message>.*', r'\1', response_text).strip()
-
     # Split the response into multiple messages if necessary
     response_parts = split_message(response_text)
 
@@ -318,7 +319,7 @@ def handle_text_generation(last_message, messages, channel_id, root_id, sender_n
         driver.posts.create_post({"channel_id": channel_id, "message": part, "root_id": root_id})
 
 
-def process_message(last_message, messages, channel_id, root_id, sender_name, links):
+def process_message(current_message, messages, channel_id, root_id):
     stop_typing_event = None
     typing_indicator_thread = None
     try:
@@ -328,10 +329,10 @@ def process_message(last_message, messages, channel_id, root_id, sender_name, li
         stop_typing_event, typing_indicator_thread = handle_typing_indicator(driver.client.userid, channel_id, root_id)
 
         # Check if "draw " is present in any case
-        if re.search(r"\bdraw ", last_message, re.IGNORECASE):
-            handle_image_generation(last_message, messages, channel_id, root_id, sender_name, links)
+        if re.search(r"\bdraw ", current_message, re.IGNORECASE):
+            handle_image_generation(current_message, messages, channel_id, root_id)
         else:
-            handle_text_generation(last_message, messages, channel_id, root_id, sender_name, links)
+            handle_text_generation(current_message, messages, channel_id, root_id)
     except Exception as e:
         logger.error(f"Error: {str(e)} {traceback.format_exc()}")
         driver.posts.create_post({"channel_id": channel_id, "message": f"Error occurred: {str(e)}", "root_id": root_id})
@@ -371,36 +372,59 @@ def extract_post_data(post, event_data):
     return message, channel_id, sender_name, root_id, post_id, channel_display_name
 
 
+def construct_message(name, role, message):
+    user_message = {
+        "name": name,
+        "role": role,
+        "content": [
+            {
+                "type": "text",
+                "text": f"{message}",
+            }
+        ],
+    }
+
+    return user_message
+
+
+# We pass post_id here so cache contains results for the most recent message
+@lru_cache(maxsize=100)
+def get_raw_thread_posts(root_id, _post_id):
+    return driver.posts.get_thread(root_id)
+
+
 def get_thread_posts(root_id, post_id):
     messages = []
-    chatbot_invoked = False
-
-    thread = driver.posts.get_thread(root_id)
+    thread = get_raw_thread_posts(root_id, post_id)
 
     # Sort the thread posts based on their create_at timestamp as the "order" prop is not suitable for this
     sorted_posts = sorted(thread["posts"].values(), key=lambda x: x["create_at"])
     for thread_post in sorted_posts:
-        # We ignore our own post here as we might need to fetch/extract some content later. Refactor this as we want to cache results anyway and grab all URL contents, even from thread posts
-        if thread_post["id"] != post_id:
-            thread_sender_name = get_username_from_user_id(thread_post["user_id"])
-            thread_message = thread_post["message"]
-            role = "assistant" if thread_post["user_id"] == driver.client.userid else "user"
-            messages.append(
-                {
-                    "role": role,
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": f"<chat_event><username>{thread_sender_name}</username><message>{thread_message}</message></chat_event>",
-                        }
-                    ],
-                }
-            )
+        thread_sender_name = get_username_from_user_id(thread_post["user_id"])
+        thread_message = thread_post["message"]
+        role = "assistant" if thread_post["user_id"] == driver.client.userid else "user"
+        messages.append((thread_sender_name, role, thread_message))
 
-            if role == "assistant":
-                chatbot_invoked = True
+    return messages
 
-    return messages, chatbot_invoked
+
+def is_chatbot_invoked(post, post_id, root_id, channel_display_name):
+    # Need to directly access the message here as we filter the mention earlier
+    if chatbot_username_at in post["message"]:
+        return True
+
+    # It is a direct message
+    if channel_display_name.startswith("@"):
+        return True
+
+    if root_id:
+        thread = get_raw_thread_posts(root_id, post_id)
+
+        for thread_post in thread["posts"].values():
+            if thread_post["user_id"] == driver.client.userid:
+                return True
+
+    return False
 
 
 async def message_handler(event):
@@ -419,27 +443,41 @@ async def message_handler(event):
                 logger.info("Ignoring post from a bot")
                 return
 
-            message, channel_id, sender_name, root_id, post_id, channel_display_name = extract_post_data(
+            current_message, channel_id, sender_name, root_id, post_id, channel_display_name = extract_post_data(
                 post, event_data
             )
 
             try:
                 messages = []
-                chatbot_invoked = False
-
-                # Retrieve the thread context
-                if root_id:
-                    thread_messages, chatbot_invoked = get_thread_posts(root_id, post_id)
-                    messages.extend(thread_messages)
 
                 # Add the current message to the messages array if "@chatbot" is mentioned, the chatbot has already been invoked in the thread or its a DM
-                if chatbot_username_at in post["message"] or chatbot_invoked or channel_display_name.startswith("@"):
-                    links = re.findall(r"(https?://\S+)", message)  # Allow both http and https links
-                    website_content_all = ""
-                    total_size = 0
-                    image_messages = []
+                if is_chatbot_invoked(post, post_id, root_id, channel_display_name):
+                    # Retrieve the thread context if there is any
+                    thread_messages = []
 
-                    with httpx.Client() as client:
+                    if root_id:
+                        thread_messages = get_thread_posts(root_id, post_id)
+
+                    if not root_id:
+                        thread_messages.append((sender_name, "user", current_message))
+
+                    for index, thread_message in enumerate(thread_messages):
+                        thread_sender_name, thread_role, thread_message_text = thread_message
+
+                        # We don't want to extract information from links the assistant sent
+                        if thread_role == "assistant":
+                            messages.append(construct_message(thread_sender_name, thread_role, thread_message_text))
+                            continue
+
+                        is_last_message = index == len(thread_messages) - 1
+                        if not keep_all_url_content and not is_last_message:
+                            messages.append(construct_message(thread_sender_name, "user", thread_message_text))
+                            continue
+
+                        links = re.findall(r"(https?://\S+)", thread_message_text)  # Allow both http and https links
+                        website_content_all = ""
+                        image_messages = []
+
                         for link in links:
                             if re.search(regex_local_links, link):
                                 logger.info(f"Skipping local URL: {link}")
@@ -449,132 +487,19 @@ async def message_handler(event):
                             website_content = ""
 
                             try:
-                                if yt_is_valid_url(link):
-                                    website_content = yt_get_content(link)
+                                raw_result = request_link_content(link)
 
-                                # Proceed if no video content found
-                                if not website_content:
-                                    # By doing the redirect itself, we might already allow a local request?
-                                    with client.stream("GET", link, timeout=4, follow_redirects=True) as response:
-                                        final_url = str(response.url)
-
-                                        if re.search(regex_local_links, final_url):
-                                            logger.info(f"Skipping local URL after redirection: {final_url}")
-                                            continue
-
-                                        content_type = response.headers.get("content-type", "").lower()
-                                        if "image" in content_type:
-                                            # Check for compatible content types
-                                            compatible_content_types = [
-                                                "image/jpeg",
-                                                "image/png",
-                                                "image/gif",
-                                                "image/webp",
-                                            ]
-                                            if content_type not in compatible_content_types:
-                                                raise Exception(f"Unsupported image content type: {content_type}")
-
-                                            # Handle image content
-                                            image_data = b""
-                                            for chunk in response.iter_bytes():
-                                                image_data += chunk
-                                                total_size += len(chunk)
-                                                if total_size > max_response_size:
-                                                    raise Exception(
-                                                        "Image size from the website exceeded the maximum limit for the chatbot"
-                                                    )
-
-                                            # Open the image using Pillow
-                                            image = Image.open(BytesIO(image_data))
-
-                                            # Calculate the aspect ratio of the image
-                                            width, height = image.size
-                                            aspect_ratio = width / height
-
-                                            # Define the supported aspect ratios and their corresponding dimensions
-                                            supported_ratios = [
-                                                (1, 1, 1092, 1092),
-                                                (0.75, 3 / 4, 951, 1268),
-                                                (0.67, 2 / 3, 896, 1344),
-                                                (0.56, 9 / 16, 819, 1456),
-                                                (0.5, 1 / 2, 784, 1568),
-                                            ]
-
-                                            # Find the closest supported aspect ratio
-                                            # pylint: disable=cell-var-from-loop
-                                            closest_ratio = min(
-                                                supported_ratios,
-                                                key=lambda x: abs(x[0] - aspect_ratio),
-                                            )
-                                            target_width, target_height = (
-                                                closest_ratio[2],
-                                                closest_ratio[3],
-                                            )
-
-                                            # Resize the image to the target dimensions
-                                            resized_image = image.resize(
-                                                (target_width, target_height),
-                                                Image.Resampling.LANCZOS,
-                                            )
-
-                                            # Save the resized image to a BytesIO object
-                                            buffer = BytesIO()
-                                            resized_image.save(buffer, format=image.format, optimize=True)
-                                            resized_image_data = buffer.getvalue()
-
-                                            # Check if the resized image size exceeds 3MB
-                                            quality = 90
-                                            while len(resized_image_data) > 3 * 1024 * 1024:
-                                                if quality <= 0:
-                                                    raise Exception("Image too large, can't compress any further")
-
-                                                # Reduce the image quality until the size is within the target
-                                                buffer = BytesIO()
-                                                resized_image.save(
-                                                    buffer,
-                                                    format=image.format,
-                                                    optimize=True,
-                                                    quality=quality,
-                                                )
-                                                resized_image_data = buffer.getvalue()
-                                                quality -= 5
-
-                                            image_data_base64 = base64.b64encode(resized_image_data).decode("utf-8")
-                                            image_messages.append(
-                                                {
-                                                    "type": "image_url",
-                                                    "image_url": {
-                                                        "url": f"data:{content_type};base64,{image_data_base64}"
-                                                    },
-                                                }
-                                            )
-                                        else:
-                                            # Handle text content
-                                            raw_content = None
-                                            try:
-                                                if flaresolverr_endpoint:
-                                                    raw_content = request_flaresolverr(link)
-                                                else:
-                                                    raise Exception("FlareSolverr endpoint not available")
-                                            except Exception as e:
-                                                logger.debug(f"Falling back to HTTPX. Reason: {str(e)}")
-
-                                            if not raw_content:
-                                                content_chunks = []
-                                                for chunk in response.iter_bytes():
-                                                    content_chunks.append(chunk)
-                                                    total_size += len(chunk)
-                                                    if total_size > max_response_size:
-                                                        raise Exception(
-                                                            "Website size exceeded the maximum limit for the chatbot"
-                                                        )
-                                                raw_content = b"".join(content_chunks)
-
-                                            soup = BeautifulSoup(raw_content, "html.parser")
-                                            website_content = soup.get_text(" | ", strip=True)
-
-                                            if not website_content:
-                                                raise Exception("No text content found on website")
+                                # Tuple = image result
+                                if isinstance(raw_result, tuple):
+                                    content_type, image_data_base64 = raw_result
+                                    image_messages.append(
+                                        {
+                                            "type": "image_url",
+                                            "image_url": {"url": f"data:{content_type};base64,{image_data_base64}"},
+                                        }
+                                    )
+                                else:
+                                    website_content = raw_result
 
                             except Exception as e:
                                 logger.error(
@@ -585,38 +510,30 @@ async def message_handler(event):
                                 website_content_xml += f"<url_content>{website_content}</url_content></website_data>"
                                 website_content_all += website_content_xml
 
-                    website_content_all_xml = (
-                        f"<website_data_all>{website_content_all}</website_data_all>" if website_content_all else ""
-                    )
+                        website_content_all_xml = f"{website_content_all}" if website_content_all else ""
 
-                    content = f"<chat_event><username>{sender_name}</username>{website_content_all_xml}<message>{message}</message></chat_event>"
+                        content = f"{website_content_all_xml}{thread_message_text}"
 
-                    if image_messages:
-                        image_messages.append({"type": "text", "text": content})
-                        messages.append({"role": "user", "content": image_messages})
-                    else:
-                        messages.append(
-                            {
-                                "role": "user",
-                                "content": [{"type": "text", "text": content}],
-                            }
-                        )
+                        if image_messages:
+                            image_messages.append({"type": "text", "text": content})
+                            messages.append({"name": thread_sender_name, "role": "user", "content": image_messages})
+                        else:
+                            messages.append(construct_message(thread_sender_name, "user", content))
 
                     # Submit the task to the thread pool. We do this because Mattermostdriver-async is outdated
                     thread_pool.submit(
                         process_message,
-                        message,
+                        current_message,
                         messages,
                         channel_id,
                         (
                             post_id if not root_id else root_id
                         ),  # If the message is not part of a thread, reply to it to create a new thread
-                        sender_name,
-                        links,
                     )
-
             except Exception as e:
                 logger.error(f"Error inner message handler: {str(e)} {traceback.format_exc()}")
+            finally:
+                get_raw_thread_posts.cache_clear()
         else:
             # Handle other events
             pass
@@ -725,6 +642,140 @@ def request_flaresolverr(link):
         return content
 
     raise Exception(f"FlareSolverr request failed: {data}")
+
+
+def request_httpx(prev_response):
+    content_chunks = []
+    total_size = 0
+    for chunk in prev_response.iter_bytes():
+        content_chunks.append(chunk)
+        total_size += len(chunk)
+        if total_size > max_response_size:
+            raise Exception("Website size exceeded the maximum limit for the chatbot")
+    return b"".join(content_chunks)
+
+
+def request_link_text_content(link, prev_response):
+    raw_content = None
+    try:
+        if flaresolverr_endpoint:
+            raw_content = request_flaresolverr(link)
+        else:
+            raise Exception("FlareSolverr endpoint not available")
+    except Exception as e:
+        logger.debug(f"Falling back to HTTPX. Reason: {str(e)}")
+
+    if not raw_content:
+        raw_content = request_httpx(prev_response)
+
+    soup = BeautifulSoup(raw_content, "html.parser")
+    website_content = soup.get_text(" | ", strip=True)
+
+    if not website_content:
+        raise Exception("No text content found on website")
+
+    return website_content
+
+
+def request_link_image_content(link, prev_response, content_type):
+    total_size = 0
+
+    # Check for compatible content types
+    compatible_content_types = [
+        "image/jpeg",
+        "image/png",
+        "image/gif",
+        "image/webp",
+    ]
+    if content_type not in compatible_content_types:
+        raise Exception(f"Unsupported image content type: {content_type}")
+
+    # Handle image content from link
+    image_data = b""
+    for chunk in prev_response.iter_bytes():
+        image_data += chunk
+        total_size += len(chunk)
+        if total_size > max_response_size:
+            raise Exception("Image size from the website exceeded the maximum limit for the chatbot")
+
+    # Open the image using Pillow
+    image = Image.open(BytesIO(image_data))
+
+    # Calculate the aspect ratio of the image
+    width, height = image.size
+    aspect_ratio = width / height
+
+    # Define the supported aspect ratios and their corresponding dimensions
+    supported_ratios = [
+        (1, 1, 1092, 1092),
+        (0.75, 3 / 4, 951, 1268),
+        (0.67, 2 / 3, 896, 1344),
+        (0.56, 9 / 16, 819, 1456),
+        (0.5, 1 / 2, 784, 1568),
+    ]
+
+    # Find the closest supported aspect ratio
+    # pylint: disable=cell-var-from-loop
+    closest_ratio = min(
+        supported_ratios,
+        key=lambda x: abs(x[0] - aspect_ratio),
+    )
+    target_width, target_height = (
+        closest_ratio[2],
+        closest_ratio[3],
+    )
+
+    # Resize the image to the target dimensions
+    resized_image = image.resize(
+        (target_width, target_height),
+        Image.Resampling.LANCZOS,
+    )
+
+    # Save the resized image to a BytesIO object
+    buffer = BytesIO()
+    resized_image.save(buffer, format=image.format, optimize=True)
+    resized_image_data = buffer.getvalue()
+
+    # Check if the resized image size exceeds 3MB
+    quality = 90
+    while len(resized_image_data) > 3 * 1024 * 1024:
+        if quality <= 0:
+            raise Exception("Image too large, can't compress any further")
+
+        # Reduce the image quality until the size is within the target
+        buffer = BytesIO()
+        resized_image.save(
+            buffer,
+            format=image.format,
+            optimize=True,
+            quality=quality,
+        )
+        resized_image_data = buffer.getvalue()
+        quality -= 5
+
+    image_data_base64 = base64.b64encode(resized_image_data).decode("utf-8")
+    return content_type, image_data_base64
+
+
+@lru_cache(maxsize=100)
+def request_link_content(link):
+    if yt_is_valid_url(link):
+        return yt_get_content(link)
+
+    with httpx.Client() as client:
+        # By doing the redirect itself, we might already allow a local request?
+        with client.stream("GET", link, timeout=4, follow_redirects=True) as response:
+            final_url = str(response.url)
+
+            if re.search(regex_local_links, final_url):
+                logger.info(f"Skipping local URL after redirection: {final_url}")
+                raise Exception("Local URLs are disallowed")
+
+            content_type = response.headers.get("content-type", "").lower()
+            if "image" in content_type:
+                return request_link_image_content(link, response, content_type)
+
+            return request_link_text_content(link, response)
 
 
 def main():
