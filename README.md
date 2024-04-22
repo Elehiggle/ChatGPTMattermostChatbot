@@ -15,11 +15,10 @@ This project is a chatbot for Mattermost that integrates with the OpenAI API to 
 ## Features
 
 - **Responds to messages** mentioning "@chatbot" (or rather the chatbot's username) or direct messages
-- **Extracts text content from links** shared in the messages. Also supports **FlareSolverr** to bypass
-  Javascript/CAPTCHA
-  restrictions
+- Extracts **images, PDFs and other files** from messages directly, also **extracts content from URL links** in messages
+- Supports **FlareSolverr** to bypass Javascript/CAPTCHA restrictions
 - Supports **DALL-E-3 image generation**
-- Supports the **Vision API** for describing images provided as URLs within the chat message
+- Supports the **Vision API** for describing images. Images from PDFs will also be sent here.
 - **Gets transcripts of YouTube videos** for easy tl;dw summarizations. Title, description and uploader are also
   provided
 - Maintains context of the conversation within a thread
@@ -57,7 +56,7 @@ This project is a chatbot for Mattermost that integrates with the OpenAI API to 
     ```
    _or alternatively:_
     ```bash
-    python3.12 -m pip install openai mattermostdriver certifi beautifulsoup4 pillow httpx youtube-transcript-api yt-dlp
+    python3.12 -m pip install openai mattermostdriver certifi beautifulsoup4 pillow httpx youtube-transcript-api yt-dlp pymupdf
     ```
 
 4. Set the following environment variables with your own values:
@@ -83,10 +82,10 @@ This project is a chatbot for Mattermost that integrates with the OpenAI API to 
 | `IMAGE_SIZE`                  | The image size for image generation. Default: "1024x1024" (see [docs](https://platform.openai.com/docs/guides/images/usage?context=node) for allowed types)                                                                                                                                    |
 | `IMAGE_QUALITY`               | The image quality for image generation. Default: "standard" (also: "hd")                                                                                                                                                                                                                       |
 | `IMAGE_STYLE`                 | The image style for image generation. Default: "vivid" (also: "natural")                                                                                                                                                                                                                       |
-| `MAX_RESPONSE_SIZE_MB`        | The maximum size of the website content to extract (in megabytes, per URL). Default: "100"                                                                                                                                                                                                     |
-| `FLARESOLVERR_ENDPOINT`       | Endpoint URL to your [FlareSolverr](https://github.com/FlareSolverr/FlareSolverr) instance (eg. "http://192.168.1.55:8191/v1"). If you use this, MAX_RESPONSE_SIZE_MB won't be honored since it can't stream content. For most effectiveness, use a residential IP endpoint.                   |
+| `MAX_RESPONSE_SIZE_MB`        | The maximum size of the website or file content to extract (in megabytes, per URL/file). Default: "100"                                                                                                                                                                                        |
+| `FLARESOLVERR_ENDPOINT`       | Endpoint URL to your [FlareSolverr](https://github.com/FlareSolverr/FlareSolverr) instance (eg. "http://192.168.1.55:8191/v1"). If you use this, MAX_RESPONSE_SIZE_MB won't be honored since it can't stream content. For most effectiveness, use a residential IP endpoint                    |
 | `KEEP_ALL_URL_CONTENT`        | Whether to feed the AI all URL content from the whole conversation thread. The website result is cached in memory. If you only want it to know about the current message's URL content (due to context size or cost), set to "FALSE". Default: "TRUE"                                          |
-| `MATTERMOST_IGNORE_SENDER_ID` | The user ID of a user to ignore (optional, useful if you have multiple chatbots to prevent endless loops)                                                                                                                                                                                      |
+| `MATTERMOST_IGNORE_SENDER_ID` | The user ID of a user to ignore (optional, useful if you have multiple chatbots that are not real bot accounts to prevent endless loops). Supports multiple, separated by comma                                                                                                                |
 | `MATTERMOST_PORT`             | The port of your Mattermost server. Default: "443"                                                                                                                                                                                                                                             |
 | `MATTERMOST_SCHEME`           | The scheme of the connection. Default: "https"                                                                                                                                                                                                                                                 |
 | `MATTERMOST_BASEPATH`         | The basepath of your Mattermost server. Default: "/api/v4"                                                                                                                                                                                                                                     |
@@ -104,7 +103,9 @@ python3.12 chatbot.py
 ```
 
 The chatbot will connect to the Mattermost server and start listening for messages.
-When a user mentions the chatbot in a message or sends a direct message to the chatbot, the chatbot will process the message, extract text content from links (if any), handle image content using the Vision API, if necessary queries the DALL-E-3 API, and send the response back to the Mattermost channel.
+When a user mentions the chatbot in a message or sends a direct message to the chatbot, the chatbot will process the
+message, extract content from links (if any), process images, PDFs and other files, handle image content using the
+Vision API, if necessary queries the DALL-E-3 API, and send the response back to the Mattermost channel.
 
 > **Note:** If you don't trust your users at all, it's recommended to disable the URL/image grabbing feature, even though the chatbot filters out local addresses and IPs.
 

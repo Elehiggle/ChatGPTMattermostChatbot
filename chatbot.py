@@ -12,6 +12,9 @@ import base64
 from functools import lru_cache
 from io import BytesIO
 import certifi
+
+# noinspection PyPackageRequirements
+import fitz
 import httpx
 from PIL import Image
 from mattermostdriver.driver import Driver
@@ -19,6 +22,7 @@ from bs4 import BeautifulSoup
 from youtube_transcript_api import YouTubeTranscriptApi
 from yt_dlp import YoutubeDL
 from openai import OpenAI
+from helpers.pymupdf_rag import to_markdown
 
 log_level_root = os.getenv("LOG_LEVEL_ROOT", "INFO").upper()
 logging.basicConfig(level=log_level_root)
@@ -62,11 +66,12 @@ system_prompt_unformatted = os.getenv(
     do not be apologetic. 
     For tasks requiring reasoning or math, use the Chain-of-Thought methodology to explain your step-by-step calculations or logic. 
     Messages sent to you might contain XML tags, these XML tags are only sent to YOU exclusively for your own understanding. 
-    A list of example XML tags that can be sent to you:  
-    <youtube_video_details> <url> <title> <description> <uploader> <transcript> <chatbot_error> <website_data> <exception> <url_content> 
+    A list of example XML tags that can be sent to you: <youtube_video_details> <url> <title> <description> <uploader> <transcript> <chatbot_error> 
+    <website_data> <exception> <url_content> <file_data> <name> <file_content>
     If a user sends a link, use the extracted content provided in the XML tags, do not assume or make up stories based on the URL alone.
     In your answer DO NOT contain the link to the video/website the user just provided to you as the user already knows it, unless the task requires it. 
-    If your response contains any URLs, make sure to properly escape them using Markdown syntax for display purposes. 
+    If your response contains any URLs, make sure to properly escape them using Markdown syntax for display purposes.
+    If your response contains LaTeX, make sure to wrap it between $ symbols, for example: $\\frac{{\\pi}}{{6}}$.
     If an error occurs, provide the information from the <chatbot_error> tag to the user along with your answer.
     """,
 )
@@ -82,14 +87,14 @@ mattermost_port = int(os.getenv("MATTERMOST_PORT", "443"))
 mattermost_basepath = os.getenv("MATTERMOST_BASEPATH", "/api/v4")
 mattermost_cert_verify = os.getenv("MATTERMOST_CERT_VERIFY", True)  # pylint: disable=invalid-envvar-default
 mattermost_token = os.getenv("MATTERMOST_TOKEN", "")
-mattermost_ignore_sender_id = os.getenv("MATTERMOST_IGNORE_SENDER_ID", "")
+mattermost_ignore_sender_id = os.getenv("MATTERMOST_IGNORE_SENDER_ID", "").split(",")
 mattermost_username = os.getenv("MATTERMOST_USERNAME", "")
 mattermost_password = os.getenv("MATTERMOST_PASSWORD", "")
 mattermost_mfa_token = os.getenv("MATTERMOST_MFA_TOKEN", "")
 
 flaresolverr_endpoint = os.getenv("FLARESOLVERR_ENDPOINT", "")
 
-# Maximum website size
+# Maximum website/file size
 max_response_size = 1024 * 1024 * int(os.getenv("MAX_RESPONSE_SIZE_MB", "100"))
 
 keep_all_url_content = os.getenv("KEEP_ALL_URL_CONTENT", "TRUE").upper() == "TRUE"
@@ -124,6 +129,13 @@ ai_client = OpenAI(api_key=api_key, base_url=ai_api_baseurl)
 # Create a thread pool with a fixed number of worker threads
 thread_pool = concurrent.futures.ThreadPoolExecutor(max_workers=5)
 
+compatible_image_content_types = [
+    "image/jpeg",
+    "image/png",
+    "image/gif",
+    "image/webp",
+]
+
 
 def get_system_instructions():
     current_time = datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
@@ -155,7 +167,7 @@ def send_typing_indicator(user_id, channel_id, parent_id):
         "channel_id": channel_id,
         # "parent_id": parent_id  # somehow bugged/doesnt work
     }
-    driver.client.make_request("post", f"/users/{user_id}/typing", options=options)
+    driver.client.make_request("post", f"/users/{user_id}/typing", options=options)  # id may be substituted with "me"
 
 
 def send_typing_indicator_loop(user_id, channel_id, parent_id, stop_event):
@@ -195,7 +207,7 @@ def split_message(msg, max_length=4000):
         return [msg]
 
     if len(msg) > 40000:
-        raise Exception("Message too long.")
+        raise Exception(f"Response message too long, length: {len(msg)}")
 
     current_chunk = ""  # Holds the current message chunk
     chunks = []  # Collects all message chunks
@@ -319,14 +331,9 @@ def handle_text_generation(current_message, messages, channel_id, root_id):
         driver.posts.create_post({"channel_id": channel_id, "message": part, "root_id": root_id})
 
 
-def process_message(current_message, messages, channel_id, root_id):
-    stop_typing_event = None
-    typing_indicator_thread = None
+def handle_generation(current_message, messages, channel_id, root_id):
     try:
         logger.info("Querying AI API")
-
-        # Start the typing indicator
-        stop_typing_event, typing_indicator_thread = handle_typing_indicator(driver.client.userid, channel_id, root_id)
 
         # Check if "draw " is present in any case
         if re.search(r"\bdraw ", current_message, re.IGNORECASE):
@@ -336,7 +343,92 @@ def process_message(current_message, messages, channel_id, root_id):
     except Exception as e:
         logger.error(f"Error: {str(e)} {traceback.format_exc()}")
         driver.posts.create_post({"channel_id": channel_id, "message": f"Error occurred: {str(e)}", "root_id": root_id})
+
+
+def process_message(event_data):
+    post = json.loads(event_data["data"]["post"])
+    if should_ignore_post(post):
+        return
+
+    current_message, channel_id, sender_name, root_id, post_id, channel_display_name = extract_post_data(
+        post, event_data
+    )
+
+    stop_typing_event = None
+    typing_indicator_thread = None
+
+    try:
+        messages = []
+
+        # Chatbot is invoked if it was mentioned, the chatbot has already been invoked in the thread or its a DM
+        if is_chatbot_invoked(post, post_id, root_id, channel_display_name):
+            # Start the typing indicator
+            stop_typing_event, typing_indicator_thread = handle_typing_indicator(
+                driver.client.userid, channel_id, root_id
+            )
+
+            # Retrieve the thread context if there is any
+            thread_messages = []
+
+            if root_id:
+                thread_messages = get_thread_posts(root_id, post_id)
+
+            # If we don't have any thread, add our own message to the array
+            if not root_id:
+                thread_messages.append((post, sender_name, "user", current_message))
+
+            for index, thread_message in enumerate(thread_messages):
+                thread_post, thread_sender_name, thread_role, thread_message_text = thread_message
+
+                # We don't want to extract information from links the assistant sent
+                if thread_role == "assistant":
+                    messages.append(construct_text_message(thread_sender_name, thread_role, thread_message_text))
+                    continue
+
+                # If keep content is disabled, we will skip the remaining code to grab content unless its the last message
+                is_last_message = index == len(thread_messages) - 1
+                if not keep_all_url_content and not is_last_message:
+                    messages.append(construct_text_message(thread_sender_name, "user", thread_message_text))
+                    continue
+
+                links = re.findall(r"(https?://\S+)", thread_message_text, re.IGNORECASE)  # Allow http and https links
+                website_content_all = ""
+                image_messages = []
+
+                for link in links:
+                    if re.search(regex_local_links, link):
+                        logger.info(f"Skipping local URL: {link}")
+                        continue
+
+                    website_content = ""
+
+                    try:
+                        website_content, link_image_messages = request_link_content(link)
+                        image_messages.extend(link_image_messages)
+                    except Exception as e:
+                        logger.error(f"Error extracting content from link {link}: {str(e)} {traceback.format_exc()}")
+                        website_content = f"<chatbot_error>fetching website caused an exception, warn the chatbot user<exception>{str(e)}</exception></chatbot_error>"
+                    finally:
+                        if website_content:
+                            website_content_all += f"<website_data><url>{link}</url><url_content>{website_content}</url_content></website_data>"
+
+                files_text_content, files_image_messages = get_files_content(thread_post)
+                image_messages.extend(files_image_messages)
+
+                content = f"{files_text_content}{website_content_all}{thread_message_text}"
+
+                if image_messages:
+                    image_messages.append({"type": "text", "text": content})
+                    messages.append({"name": thread_sender_name, "role": "user", "content": image_messages})
+                else:
+                    messages.append(construct_text_message(thread_sender_name, "user", content))
+
+            # If the message is not part of a thread, reply to it to create a new thread
+            handle_generation(current_message, messages, channel_id, post_id if not root_id else root_id)
+    except Exception as e:
+        logger.error(f"Error inner message handler: {str(e)} {traceback.format_exc()}")
     finally:
+        get_raw_thread_posts.cache_clear()
         if stop_typing_event is not None:
             stop_typing_event.set()
         if typing_indicator_thread is not None:
@@ -350,7 +442,7 @@ def should_ignore_post(post):
     if sender_id == driver.client.userid:
         return True
 
-    if sender_id == mattermost_ignore_sender_id:
+    if sender_id in mattermost_ignore_sender_id:
         logger.debug("Ignoring post from an ignored sender ID")
         return True
 
@@ -372,8 +464,8 @@ def extract_post_data(post, event_data):
     return message, channel_id, sender_name, root_id, post_id, channel_display_name
 
 
-def construct_message(name, role, message):
-    user_message = {
+def construct_text_message(name, role, message):
+    message = {
         "name": name,
         "role": role,
         "content": [
@@ -384,8 +476,16 @@ def construct_message(name, role, message):
         ],
     }
 
-    return user_message
+    return message
 
+
+def construct_image_content_message(content_type, image_data_base64):
+    message = {
+        "type": "image_url",
+        "image_url": {"url": f"data:{content_type};base64,{image_data_base64}"},
+    }
+
+    return message
 
 # We pass post_id here so cache contains results for the most recent message
 @lru_cache(maxsize=100)
@@ -401,15 +501,17 @@ def get_thread_posts(root_id, post_id):
     sorted_posts = sorted(thread["posts"].values(), key=lambda x: x["create_at"])
     for thread_post in sorted_posts:
         thread_sender_name = get_username_from_user_id(thread_post["user_id"])
-        thread_message = thread_post["message"]
+        thread_message = thread_post["message"].replace(chatbot_username_at, "").strip()
         role = "assistant" if thread_post["user_id"] == driver.client.userid else "user"
-        messages.append((thread_sender_name, role, thread_message))
+        messages.append((thread_post, thread_sender_name, role, thread_message))
+        if thread_post["id"] == post_id:
+            break  # To prevent it answering a different newer post that we might have occurred during our processing
 
     return messages
 
 
 def is_chatbot_invoked(post, post_id, root_id, channel_display_name):
-    # Need to directly access the message here as we filter the mention earlier
+    # We directly access the message here as we filter the mention earlier
     if chatbot_username_at in post["message"]:
         return True
 
@@ -424,7 +526,89 @@ def is_chatbot_invoked(post, post_id, root_id, channel_display_name):
             if thread_post["user_id"] == driver.client.userid:
                 return True
 
+            # Needed when you mention the chatbot and send a fast message afterward
+            if chatbot_username_at in thread_post["message"]:
+                return True
+
     return False
+
+
+@lru_cache(maxsize=100)
+def get_file_content(file_details_json):
+    file_details = json.loads(file_details_json)
+    file_id = file_details["id"]
+    file_size = file_details["size"]
+    content_type = file_details["mime_type"].lower()
+    image_messages = []
+
+    if file_size / (1024**2) > max_response_size:
+        raise Exception("File size exceeded the maximum limit for the chatbot")
+
+    file = driver.files.get_file(file_id)
+    if content_type.startswith("image/"):
+        if content_type not in compatible_image_content_types:
+            raise Exception(f"Unsupported image content type: {content_type}")
+        image_data_base64 = process_image(file.content)
+        image_messages.append(construct_image_content_message(content_type, image_data_base64))
+        return "", image_messages
+
+    if content_type == "application/pdf":
+        return extract_pdf_content(file.content)
+
+    return file.content, image_messages
+
+
+def extract_pdf_content(stream):
+    pdf_text_content = ""
+    image_messages = []
+
+    with fitz.open(None, stream, "pdf") as pdf:
+        pdf_text_content += to_markdown(pdf).strip()
+
+        for page_num, page in enumerate(pdf):
+            # Extract images
+            for img_num, img in enumerate(page.get_images(), start=1):
+                xref = img[0]
+                pdf_base_image = pdf.extract_image(xref)
+                pdf_image_content_type = f"image/{pdf_base_image["ext"]}"
+                if pdf_image_content_type not in compatible_image_content_types:
+                    continue
+                pdf_image_data_base64 = process_image(pdf_base_image["image"])
+
+                image_messages.append(construct_image_content_message(pdf_image_content_type, pdf_image_data_base64))
+
+    return pdf_text_content, image_messages
+
+
+def get_files_content(post):
+    files_text_content_all = ""
+    image_messages = []
+
+    try:
+        if "metadata" in post and post["metadata"]:
+            metadata = post["metadata"]
+            if "files" in metadata and metadata["files"]:
+                metadata_files = metadata["files"]
+                files_text_content_all = ""
+
+                for file_details in metadata_files:
+                    file_name = file_details["name"]
+                    file_text_content = ""
+                    try:
+                        file_text_content, file_image_messages = get_file_content(json.dumps(file_details))  # JSON to make it cachable
+                        image_messages.extend(file_image_messages)
+                    except Exception as e:
+                        logger.error(
+                            f"Error extracting content from file {file_name}: {str(e)} {traceback.format_exc()}"
+                        )
+                        file_text_content = f"<chatbot_error>fetching file content caused an exception, warn the chatbot user<exception>{str(e)}</exception></chatbot_error>"
+                    finally:
+                        if file_text_content:
+                            files_text_content_all += f"<file_data><name>{file_name}</name><file_content>{file_text_content}</file_content></file_data>"
+    except Exception as e:
+        logger.error(f"Error get_files_content: {str(e)} {traceback.format_exc()}")
+
+    return files_text_content_all, image_messages
 
 
 async def message_handler(event):
@@ -434,106 +618,8 @@ async def message_handler(event):
         if event_data.get("event") == "hello":
             logger.info("WebSocket connection established.")
         elif event_data.get("event") == "posted":
-            post = json.loads(event_data["data"]["post"])
-            if should_ignore_post(post):
-                return
-
-            # Check if the post is from a bot
-            if post.get("props", {}).get("from_bot") == "true":
-                logger.info("Ignoring post from a bot")
-                return
-
-            current_message, channel_id, sender_name, root_id, post_id, channel_display_name = extract_post_data(
-                post, event_data
-            )
-
-            try:
-                messages = []
-
-                # Add the current message to the messages array if "@chatbot" is mentioned, the chatbot has already been invoked in the thread or its a DM
-                if is_chatbot_invoked(post, post_id, root_id, channel_display_name):
-                    # Retrieve the thread context if there is any
-                    thread_messages = []
-
-                    if root_id:
-                        thread_messages = get_thread_posts(root_id, post_id)
-
-                    if not root_id:
-                        thread_messages.append((sender_name, "user", current_message))
-
-                    for index, thread_message in enumerate(thread_messages):
-                        thread_sender_name, thread_role, thread_message_text = thread_message
-
-                        # We don't want to extract information from links the assistant sent
-                        if thread_role == "assistant":
-                            messages.append(construct_message(thread_sender_name, thread_role, thread_message_text))
-                            continue
-
-                        is_last_message = index == len(thread_messages) - 1
-                        if not keep_all_url_content and not is_last_message:
-                            messages.append(construct_message(thread_sender_name, "user", thread_message_text))
-                            continue
-
-                        links = re.findall(r"(https?://\S+)", thread_message_text)  # Allow both http and https links
-                        website_content_all = ""
-                        image_messages = []
-
-                        for link in links:
-                            if re.search(regex_local_links, link):
-                                logger.info(f"Skipping local URL: {link}")
-                                continue
-
-                            website_content_xml = f"<website_data><url>{link}</url>"
-                            website_content = ""
-
-                            try:
-                                raw_result = request_link_content(link)
-
-                                # Tuple = image result
-                                if isinstance(raw_result, tuple):
-                                    content_type, image_data_base64 = raw_result
-                                    image_messages.append(
-                                        {
-                                            "type": "image_url",
-                                            "image_url": {"url": f"data:{content_type};base64,{image_data_base64}"},
-                                        }
-                                    )
-                                else:
-                                    website_content = raw_result
-
-                            except Exception as e:
-                                logger.error(
-                                    f"Error extracting content from link {link}: {str(e)} {traceback.format_exc()}"
-                                )
-                                website_content += f"<chatbot_error>fetching website caused an exception, warn the chatbot user<exception>{str(e)}</exception></chatbot_error>"
-                            finally:
-                                website_content_xml += f"<url_content>{website_content}</url_content></website_data>"
-                                website_content_all += website_content_xml
-
-                        website_content_all_xml = f"{website_content_all}" if website_content_all else ""
-
-                        content = f"{website_content_all_xml}{thread_message_text}"
-
-                        if image_messages:
-                            image_messages.append({"type": "text", "text": content})
-                            messages.append({"name": thread_sender_name, "role": "user", "content": image_messages})
-                        else:
-                            messages.append(construct_message(thread_sender_name, "user", content))
-
-                    # Submit the task to the thread pool. We do this because Mattermostdriver-async is outdated
-                    thread_pool.submit(
-                        process_message,
-                        current_message,
-                        messages,
-                        channel_id,
-                        (
-                            post_id if not root_id else root_id
-                        ),  # If the message is not part of a thread, reply to it to create a new thread
-                    )
-            except Exception as e:
-                logger.error(f"Error inner message handler: {str(e)} {traceback.format_exc()}")
-            finally:
-                get_raw_thread_posts.cache_clear()
+            # Submit the task to the thread pool. We do this because Mattermostdriver-async is outdated
+            thread_pool.submit(process_message, event_data)
         else:
             # Handle other events
             pass
@@ -677,17 +763,11 @@ def request_link_text_content(link, prev_response):
     return website_content
 
 
-def request_link_image_content(link, prev_response, content_type):
+def request_link_image_content(prev_response, content_type):
     total_size = 0
 
     # Check for compatible content types
-    compatible_content_types = [
-        "image/jpeg",
-        "image/png",
-        "image/gif",
-        "image/webp",
-    ]
-    if content_type not in compatible_content_types:
+    if content_type not in compatible_image_content_types:
         raise Exception(f"Unsupported image content type: {content_type}")
 
     # Handle image content from link
@@ -698,6 +778,48 @@ def request_link_image_content(link, prev_response, content_type):
         if total_size > max_response_size:
             raise Exception("Image size from the website exceeded the maximum limit for the chatbot")
 
+    image_data_base64 = process_image(image_data)
+    return [construct_image_content_message(content_type, image_data_base64)]
+
+
+@lru_cache(maxsize=100)
+def request_link_content(link):
+    if yt_is_valid_url(link):
+        return yt_get_content(link)
+
+    with httpx.Client() as client:
+        # By doing the redirect itself, we might already allow a local request?
+        with client.stream("GET", link, timeout=4, follow_redirects=True) as response:
+            final_url = str(response.url)
+
+            if re.search(regex_local_links, final_url):
+                logger.info(f"Skipping local URL after redirection: {final_url}")
+                raise Exception("Local URL is disallowed")
+
+            content_type = response.headers.get("content-type", "").lower()
+            if "image/" in content_type:
+                return "", request_link_image_content(response, content_type)
+
+            if "application/pdf" in content_type:
+                return request_link_pdf_content(response)
+
+            return request_link_text_content(link, response)
+
+
+def request_link_pdf_content(prev_response):
+    total_size = 0
+
+    pdf_data = b""
+    for chunk in prev_response.iter_bytes():
+        pdf_data += chunk
+        total_size += len(chunk)
+        if total_size > max_response_size:
+            raise Exception("PDF size from the website exceeded the maximum limit for the chatbot")
+
+    return extract_pdf_content(pdf_data)
+
+
+def process_image(image_data):
     # Open the image using Pillow
     image = Image.open(BytesIO(image_data))
 
@@ -753,29 +875,7 @@ def request_link_image_content(link, prev_response, content_type):
         resized_image_data = buffer.getvalue()
         quality -= 5
 
-    image_data_base64 = base64.b64encode(resized_image_data).decode("utf-8")
-    return content_type, image_data_base64
-
-
-@lru_cache(maxsize=100)
-def request_link_content(link):
-    if yt_is_valid_url(link):
-        return yt_get_content(link)
-
-    with httpx.Client() as client:
-        # By doing the redirect itself, we might already allow a local request?
-        with client.stream("GET", link, timeout=4, follow_redirects=True) as response:
-            final_url = str(response.url)
-
-            if re.search(regex_local_links, final_url):
-                logger.info(f"Skipping local URL after redirection: {final_url}")
-                raise Exception("Local URLs are disallowed")
-
-            content_type = response.headers.get("content-type", "").lower()
-            if "image" in content_type:
-                return request_link_image_content(link, response, content_type)
-
-            return request_link_text_content(link, response)
+    return base64.b64encode(resized_image_data).decode("utf-8")
 
 
 def main():
