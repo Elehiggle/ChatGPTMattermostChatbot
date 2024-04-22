@@ -36,7 +36,6 @@ License GNU Affero GPL 3.0
 """
 
 import string
-from pprint import pprint
 
 import fitz
 
@@ -67,11 +66,7 @@ def to_markdown(doc: fitz.Document, pages: list = None) -> str:
                 page = doc[pno]
                 blocks = page.get_text("dict", flags=fitz.TEXTFLAGS_TEXT)["blocks"]
                 for span in [  # look at all non-empty horizontal spans
-                    s
-                    for b in blocks
-                    for l in b["lines"]
-                    for s in l["spans"]
-                    if not SPACES.issuperset(s["text"])
+                    s for b in blocks for l in b["lines"] for s in l["spans"] if not SPACES.issuperset(s["text"])
                 ]:
                     fontsz = round(span["size"])
                     count = fontsizes.get(fontsz, 0) + len(span["text"].strip())
@@ -84,11 +79,11 @@ def to_markdown(doc: fitz.Document, pages: list = None) -> str:
                     [(k, v) for k, v in fontsizes.items()],
                     key=lambda i: i[1],
                     reverse=True,
-                )[0][0]
+                )[
+                    0
+                ][0]
 
-            sizes = sorted(
-                [f for f in fontsizes.keys() if f > body_limit], reverse=True
-            )
+            sizes = sorted([f for f in fontsizes.keys() if f > body_limit], reverse=True)
 
             # make the header tag dictionary
             for i, size in enumerate(sizes):
@@ -167,10 +162,7 @@ def to_markdown(doc: fitz.Document, pages: list = None) -> str:
                 if all_mono:
                     # compute approx. distance from left - assuming a width
                     # of 0.5*fontsize.
-                    delta = int(
-                        (spans[0]["bbox"][0] - block["bbox"][0])
-                        / (spans[0]["size"] * 0.5)
-                    )
+                    delta = int((spans[0]["bbox"][0] - block["bbox"][0]) / (spans[0]["size"] * 0.5))
                     if not code:  # if not already in code output  mode:
                         out_string += "```"  # switch on "code" mode
                         code = True
@@ -244,10 +236,7 @@ def to_markdown(doc: fitz.Document, pages: list = None) -> str:
         # 2. make a list of table boundary boxes, sort by top-left corner.
         # Must include the header bbox, which may be external.
         tab_rects = sorted(
-            [
-                (fitz.Rect(t.bbox) | fitz.Rect(t.header.bbox), i)
-                for i, t in enumerate(tabs.tables)
-            ],
+            [(fitz.Rect(t.bbox) | fitz.Rect(t.header.bbox), i) for i, t in enumerate(tabs.tables)],
             key=lambda r: (r[0].y0, r[0].x0),
         )
 

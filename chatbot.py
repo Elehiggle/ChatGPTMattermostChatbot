@@ -789,7 +789,7 @@ def request_link_image_content(prev_response, content_type):
 @lru_cache(maxsize=100)
 def request_link_content(link):
     if yt_is_valid_url(link):
-        return yt_get_content(link)
+        return yt_get_content(link), []
 
     with httpx.Client() as client:
         # By doing the redirect itself, we might already allow a local request?
@@ -807,7 +807,7 @@ def request_link_content(link):
             if "application/pdf" in content_type:
                 return request_link_pdf_content(response)
 
-            return request_link_text_content(link, response)
+            return request_link_text_content(link, response), []
 
 
 def request_link_pdf_content(prev_response):
