@@ -487,6 +487,7 @@ def construct_image_content_message(content_type, image_data_base64):
 
     return message
 
+
 # We pass post_id here so cache contains results for the most recent message
 @lru_cache(maxsize=100)
 def get_raw_thread_posts(root_id, _post_id):
@@ -565,12 +566,13 @@ def extract_pdf_content(stream):
     with fitz.open(None, stream, "pdf") as pdf:
         pdf_text_content += to_markdown(pdf).strip()
 
-        for page_num, page in enumerate(pdf):
+        for page in pdf:
             # Extract images
-            for img_num, img in enumerate(page.get_images(), start=1):
+            for img in page.get_images():
                 xref = img[0]
                 pdf_base_image = pdf.extract_image(xref)
-                pdf_image_content_type = f"image/{pdf_base_image["ext"]}"
+                pdf_image_extension = pdf_base_image["ext"]
+                pdf_image_content_type = f"image/{pdf_image_extension}"
                 if pdf_image_content_type not in compatible_image_content_types:
                     continue
                 pdf_image_data_base64 = process_image(pdf_base_image["image"])
@@ -595,7 +597,9 @@ def get_files_content(post):
                     file_name = file_details["name"]
                     file_text_content = ""
                     try:
-                        file_text_content, file_image_messages = get_file_content(json.dumps(file_details))  # JSON to make it cachable
+                        file_text_content, file_image_messages = get_file_content(
+                            json.dumps(file_details)
+                        )  # JSON to make it cachable
                         image_messages.extend(file_image_messages)
                     except Exception as e:
                         logger.error(
