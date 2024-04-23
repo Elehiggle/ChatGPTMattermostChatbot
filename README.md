@@ -15,7 +15,7 @@ This project is a chatbot for Mattermost that integrates with the OpenAI API to 
 ## Features
 
 - **Responds to messages** mentioning "@chatbot" (or rather the chatbot's username) or direct messages
-- Extracts **images, PDFs and other files** from messages directly, also **extracts content from URL links** in messages
+- Extracts **images, PDFs and other files** from message attachments and from **URL links** in messages
 - Supports **FlareSolverr** to bypass Javascript/CAPTCHA restrictions
 - Supports **DALL-E-3 image generation**
 - Supports the **Vision API** for describing images. Images from PDFs will also be sent here.
@@ -75,7 +75,7 @@ This project is a chatbot for Mattermost that integrates with the OpenAI API to 
 
 | Parameter                     | Description                                                                                                                                                                                                                                                                                    |
 |-------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `AI_SYSTEM_PROMPT`            | The system prompt/instructions. Default: [click](https://github.com/Elehiggle/ChatGPTMattermostChatbot/blob/6ecd530f48291e9cc842a538690c92877633bb87/chatbot.py#L49) (Subject to change. current_time and chatbot_username variables inside the prompt will be auto-formatted and substituted. |
+| `AI_SYSTEM_PROMPT`            | The system prompt/instructions. Default: [click](https://github.com/Elehiggle/ChatGPTMattermostChatbot/blob/e5df0108c1e7b427b19c8d4eb1c02ee01bcfa444/chatbot.py#L64) (Subject to change. current_time and chatbot_username variables inside the prompt will be auto-formatted and substituted. |
 | `AI_TIMEOUT`                  | The timeout for the AI API call in seconds. Default: "120"                                                                                                                                                                                                                                     |
 | `MAX_TOKENS`                  | The maximum number of tokens to generate in the response. Default: "4096" (max)                                                                                                                                                                                                                |
 | `TEMPERATURE`                 | The temperature value for controlling the randomness of the generated responses (0.0 = analytical, 1.0 = fully random). Default: "1"                                                                                                                                                           |
@@ -129,6 +129,28 @@ docker run -d --name chatbotgpt \
 ![Mattermost DALL-E-3 chat with bot example](./dalle3.png)
 
 The bot listens to "draw", and if you send "#draw", it will try to use your prompt as is without any modification by the API.
+In the future this will be contextual and won't require certain keywords.
+
+## How does this bot differ from the official Mattermost AI plugin?
+
+The official [Mattermost AI plugin](https://github.com/mattermost/mattermost-plugin-ai) is a great way to integrate AI
+into your Mattermost server with its own advantages, like a nice UI.
+However, the features differ greatly. It requires direct access to the server, whereas this bot merely needs a bot token
+and can be conveniently used in a Docker environment.
+
+Also there is:
+
+- no fine granular control over certain settings (especially AI settings)
+- no CAPTCHA bypass
+- no image generation
+- no Vision API
+- no PDF parsing
+- no YouTube transcript fetching
+- and more
+
+While the official plugin certainly will improve over time, this bot here will too and there will be certain features
+that will absolutely never make it into the official plugin, due to it primarily focusing on features for developers
+like function calling and retrieving GitHub issues, for example.
 
 ## Known Issues
 
@@ -160,3 +182,8 @@ This project is licensed under the MIT License.
 - [chatgpt-mattermost-bot](https://github.com/yGuy/chatgpt-mattermost-bot) for inspiring me to write this python code
 - [youtube-transcript-api](https://pypi.org/project/youtube-transcript-api/) for the YouTube Transcript Fetch library
 - [yt-dlp](https://pypi.org/project/yt-dlp/) for the YouTube API that allows us to fetch details
+- [PyMuPDF](https://pypi.org/project/PyMuPDF/) for the comprehensive PDF parsing library
+- [beautifulsoup4](https://pypi.org/project/beautifulsoup4/) for the HTML parsing library
+- [pillow](https://pypi.org/project/pillow/) for the image processing library
+- [httpx](https://pypi.org/project/httpx/) for the HTTP client library
+- [certifi](https://pypi.org/project/certifi/) for the certificate verification library
