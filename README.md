@@ -56,20 +56,20 @@ This project is a chatbot for Mattermost that integrates with the OpenAI API to 
     ```
    _or alternatively:_
     ```bash
-    python3.12 -m pip install openai mattermostdriver certifi beautifulsoup4 pillow httpx youtube-transcript-api yt-dlp pymupdf
+    python3.12 -m pip install openai mattermostdriver certifi beautifulsoup4 pillow httpx youtube-transcript-api yt-dlp PyMuPDF
     ```
 
 4. Set the following environment variables with your own values:
 
-| Parameter              | Description                                                                                                                                                         |
-|------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `AI_API_KEY`           | Your OpenAI API key                                                                                                                                                 |
-| `AI_MODEL`             | The OpenAI model to use. Default: "gpt-4-turbo"                                                                                                                     |
-| `MATTERMOST_URL`       | The URL of your Mattermost server                                                                                                                                   |
-| `MATTERMOST_TOKEN`     | The bot token (alternatively personal access token) with relevant permissions created specifically for the chatbot. Don't forget to add the bot account to the team |
-| `MATTERMOST_USERNAME`  | The username of the dedicated Mattermost user account for the chatbot (if using username/password login)                                                            |
-| `MATTERMOST_PASSWORD`  | The password of the dedicated Mattermost user account for the chatbot (if using username/password login)                                                            |
-| `MATTERMOST_MFA_TOKEN` | The MFA token of the dedicated Mattermost user account for the chatbot (if using MFA)                                                                               |
+| Parameter              | Description                                                                                                                                                                                              |
+|------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `AI_API_KEY`           | Required. Your OpenAI API key                                                                                                                                                                            |
+| `AI_MODEL`             | The OpenAI model to use. Default: "gpt-4-turbo"                                                                                                                                                          |
+| `MATTERMOST_URL`       | Required. The URL of your Mattermost server                                                                                                                                                              |
+| `MATTERMOST_TOKEN`     | Required if not using user/password. The bot token (alternatively personal access token) with relevant permissions created specifically for the chatbot. Don't forget to add the bot account to the team |
+| `MATTERMOST_USERNAME`  | Required if not using token. The username of the dedicated Mattermost user account for the chatbot (if using username/password login)                                                                    |
+| `MATTERMOST_PASSWORD`  | Required if not using token. The password of the dedicated Mattermost user account for the chatbot (if using username/password login)                                                                    |
+| `MATTERMOST_MFA_TOKEN` | The MFA token of the dedicated Mattermost user account for the chatbot (if using MFA)                                                                                                                    |
 
 ### Extended optional configuration variables:
 

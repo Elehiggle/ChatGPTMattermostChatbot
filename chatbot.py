@@ -72,7 +72,6 @@ If a user sends a link, use the extracted content provided in the XML tags, do n
 If a user sends a YouTube link, primarily focus on the transcript and do not unnecessarily repeat the title, description or uploader of the video. 
 In your answer DO NOT contain the link to the video/website the user just provided to you as the user already knows it, unless the task requires it. 
 If your response contains any URLs, make sure to properly escape them using Markdown syntax for display purposes.
-If your response contains LaTeX, make sure to wrap it between $ symbols, for example: $\\frac{{\\pi}}{{6}}$.
 If an error occurs, provide the information from the <chatbot_error> tag to the user along with your answer.""",
 )
 
@@ -701,7 +700,7 @@ def yt_is_valid_url(url):
         r"(?:youtube\.com/(?:[^/]+/.+/|(?:v|e(?:mbed)?)/|.*[?&]v=)|youtu\.be/|youtube\.com/shorts/)([^\"&?/\s]{11})"
     )
     match = re.search(pattern, url)
-    return bool(match)  # True if match found, False otherwise
+    return bool(match)
 
 
 def yt_get_content(link):
