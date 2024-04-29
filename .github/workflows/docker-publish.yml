@@ -13,9 +13,6 @@ on:
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        platform: [ linux/amd64, linux/arm64 ]
 
     steps:
     - uses: actions/checkout@v4
@@ -59,9 +56,10 @@ jobs:
       uses: docker/build-push-action@v5
       with:
         context: .
-        push: true
+        file: ./Dockerfile
+        push: ${{ github.event_name != 'pull_request' }}
         provenance: false
-        platforms: ${{ matrix.platform }}
+        platforms: linux/amd64,linux/arm64/v8
         labels: ${{ steps.meta.outputs.labels }}
         tags: ${{ steps.meta.outputs.tags }}
         cache-from: type=gha
