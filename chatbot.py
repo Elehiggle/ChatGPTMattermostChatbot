@@ -845,10 +845,19 @@ def process_image(image_data):
         supported_ratios,
         key=lambda x: abs(x[0] - aspect_ratio),
     )
-    target_width, target_height = (
-        closest_ratio[2],
-        closest_ratio[3],
-    )
+    # Determine the target dimensions based on the image orientation
+    if width >= height:
+        # Landscape orientation
+        target_width, target_height = (
+            closest_ratio[2],
+            closest_ratio[3],
+        )
+    else:
+        # Portrait orientation
+        target_width, target_height = (
+            closest_ratio[3],
+            closest_ratio[2],
+        )
 
     # Resize the image to the target dimensions
     resized_image = image.resize(
