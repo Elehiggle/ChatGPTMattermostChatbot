@@ -128,8 +128,8 @@ docker run -d --name chatbotgpt \
 
 ![Mattermost DALL-E-3 chat with bot example](./dalle3.png)
 
-The bot listens to "draw", and if you send "#draw", it will try to use your prompt as is without any modification by the API.
-In the future this will be contextual and won't require certain keywords.
+The AI will generate pictures for you. If you start your message with a "#" it will try to use your prompt as is without
+any modification by the API.
 
 ## How does this bot differ from the official Mattermost AI plugin?
 

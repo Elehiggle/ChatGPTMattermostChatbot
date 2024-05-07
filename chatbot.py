@@ -75,6 +75,21 @@ If your response contains any URLs, make sure to properly escape them using Mark
 If an error occurs, provide the information from the <chatbot_error> tag to the user along with your answer.""",
 )
 
+tools = [{
+    "type": "function",
+    "function": {
+        "name": "generate_image",
+        "description": "Generates an image based on a textual prompt",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "prompt": {"type": "string", "description": "Text prompt for generating the image"}
+            },
+            "required": ["prompt"]
+        },
+    },
+}]
+
 image_size = os.getenv("IMAGE_SIZE", "1024x1024")
 image_quality = os.getenv("IMAGE_QUALITY", "standard")
 image_style = os.getenv("IMAGE_STYLE", "vivid")
@@ -263,18 +278,15 @@ def split_message(msg, max_length=4000):
     return chunks
 
 
-def handle_image_generation(current_message, messages, channel_id, root_id):
-    # Check if "#draw " is present in any case and replace the first occurrence
-    if re.search(r"#draw ", current_message, re.IGNORECASE):
-        current_message = re.sub(r"#draw ", "", current_message, count=1, flags=re.IGNORECASE)
-        current_message = f"I NEED to test how the tool works with extremely simple prompts. DO NOT add any detail, just use it AS-IS: {current_message}"
-    else:
-        # If "#draw " is not found, replace the first occurrence of "draw " in any case
-        current_message = re.sub(r"\bdraw ", "", current_message, count=1, flags=re.IGNORECASE)
+def handle_image_generation(prompt, is_raw, channel_id, root_id):
+    if is_raw:
+        # Removing a leading '#' and any whitespace following it
+        prompt = re.sub(r'^#(\s*)', '', prompt)
+        prompt = f"I NEED to test how the tool works with extremely simple prompts. DO NOT add any detail, just use it AS-IS: {prompt}"
 
     response = ai_client.images.generate(
         model="dall-e-3",
-        prompt=current_message,
+        prompt=prompt,
         size=image_size,  # type: ignore
         quality=image_quality,  # type: ignore
         style=image_style,  # type: ignore
@@ -293,9 +305,7 @@ def handle_image_generation(current_message, messages, channel_id, root_id):
     file_id = driver.files.upload_file(
         channel_id=channel_id,
         files={"files": ("image.png", decoded_image_data)},
-    )[
-        "file_infos"
-    ][0]["id"]
+    )["file_infos"][0]["id"]
 
     # Send the API response back to the Mattermost channel as a reply to the thread or as a new thread
     driver.posts.create_post(
@@ -316,10 +326,30 @@ def handle_text_generation(current_message, messages, channel_id, root_id):
         messages=[{"role": "system", "content": get_system_instructions()}, *messages],
         timeout=timeout,
         temperature=temperature,
+        tools=tools,
+        tool_choice="auto",  # Let model decide to call the function or not
     )
 
-    # Extract the text content
+    # Check if tool calls are present in the response
+    if response.choices[0].message.tool_calls:
+        image_prompt_is_raw = current_message.startswith("#")
+        tool_calls = response.choices[0].message.tool_calls
+        for index, call in enumerate(tool_calls):
+            if index >= 5:  # Limit the number of function calls to 5
+                raise Exception("Maximum amount of function calls reached")
+
+            if call.function.name == "generate_image":
+                arguments = json.loads(call.function.arguments)
+                image_prompt = arguments['prompt']
+                handle_image_generation(current_message if image_prompt_is_raw else image_prompt, image_prompt_is_raw,
+                                        channel_id, root_id)
+
+        return  # Exit after handling function calls
+
     response_text = response.choices[0].message.content
+
+    if not response_text:
+        raise Exception("Empty AI response, likely API error")
 
     # Split the response into multiple messages if necessary
     response_parts = split_message(response_text)
@@ -333,12 +363,7 @@ def handle_text_generation(current_message, messages, channel_id, root_id):
 def handle_generation(current_message, messages, channel_id, root_id):
     try:
         logger.info("Querying AI API")
-
-        # Check if "draw " is present in any case
-        if re.search(r"\bdraw ", current_message, re.IGNORECASE):
-            handle_image_generation(current_message, messages, channel_id, root_id)
-        else:
-            handle_text_generation(current_message, messages, channel_id, root_id)
+        handle_text_generation(current_message, messages, channel_id, root_id)
     except Exception as e:
         logger.error(f"Error: {str(e)} {traceback.format_exc()}")
         driver.posts.create_post({"channel_id": channel_id, "message": f"Error occurred: {str(e)}", "root_id": root_id})
