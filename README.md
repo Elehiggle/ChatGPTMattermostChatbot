@@ -21,7 +21,8 @@ This project is a chatbot for Mattermost that integrates with the OpenAI API to 
 - Supports the **Vision API** for describing images. Images from PDFs will also be sent here.
 - **Gets transcripts of YouTube videos** for easy tl;dw summarizations. Title, description and uploader are also
   provided
-- Accesses additional live information via function calling. Currently supported: **currency exchange rates** (via ECB)
+- Accesses additional live information via function calling. Currently supported: **currency exchange rates** (
+  via [ECB](https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml))
 - Maintains context of the conversation within a thread
 - Sends typing indicators to show that the chatbot is processing the message
 - Utilizes a thread pool to handle multiple requests concurrently (due to `mattermostdriver-asyncio` being outdated)

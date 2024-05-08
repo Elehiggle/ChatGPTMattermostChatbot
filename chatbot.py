@@ -424,6 +424,7 @@ def get_exchange_rates():
 
     with httpx.Client() as client:
         response = client.get(ecb_url, timeout=4)
+        response.raise_for_status()
 
         root = ETree.fromstring(response.content)
         namespace = {
@@ -432,7 +433,7 @@ def get_exchange_rates():
         }
 
         rates = root.find(".//ecb:Cube/ecb:Cube", namespaces=namespace)
-        exchange_rates = {"EUR": "1"}  # We add 1:1 EUR here to additionally indicate the base currency is EUR
+        exchange_rates = {"base_currency": "EUR"}
         for rate in rates.findall("ecb:Cube", namespaces=namespace):
             exchange_rates[rate.get("currency")] = rate.get("rate")
 
