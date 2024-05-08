@@ -21,8 +21,10 @@ This project is a chatbot for Mattermost that integrates with the OpenAI API to 
 - Supports the **Vision API** for describing images. Images from PDFs will also be sent here.
 - **Gets transcripts of YouTube videos** for easy tl;dw summarizations. Title, description and uploader are also
   provided
-- Accesses additional live information via function calling. Currently supported: **currency exchange rates** (
-  via [ECB](https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml))
+- Accesses additional live information via function calling. Currently supported: **cryptocurrency data** (
+  via [Coingecko](https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=500&page=1&sparkline=false&price_change_percentage=24h%2C7d)),
+  **fiat currency exchange rates**
+  (via [ECB](https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml))
 - Maintains context of the conversation within a thread
 - Sends typing indicators to show that the chatbot is processing the message
 - Utilizes a thread pool to handle multiple requests concurrently (due to `mattermostdriver-asyncio` being outdated)
@@ -58,7 +60,7 @@ This project is a chatbot for Mattermost that integrates with the OpenAI API to 
     ```
    _or alternatively:_
     ```bash
-    python3.12 -m pip install openai mattermostdriver certifi beautifulsoup4 pillow httpx youtube-transcript-api yt-dlp PyMuPDF
+    python3.12 -m pip install openai mattermostdriver certifi beautifulsoup4 pillow httpx youtube-transcript-api yt-dlp PyMuPDF defusedxml
     ```
 
 4. Set the following environment variables with your own values:
@@ -73,7 +75,7 @@ This project is a chatbot for Mattermost that integrates with the OpenAI API to 
 | `MATTERMOST_PASSWORD`  | Required if not using token. The password of the dedicated Mattermost user account for the chatbot (if using username/password login)                                                                    |
 | `MATTERMOST_MFA_TOKEN` | The MFA token of the dedicated Mattermost user account for the chatbot (if using MFA)                                                                                                                    |
 
-### Extended optional configuration variables:
+### Extended optional configuration variables
 
 | Parameter                     | Description                                                                                                                                                                                                                                                                                    |
 |-------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
@@ -85,14 +87,14 @@ This project is a chatbot for Mattermost that integrates with the OpenAI API to 
 | `IMAGE_QUALITY`               | The image quality for image generation. Default: "standard" (also: "hd")                                                                                                                                                                                                                       |
 | `IMAGE_STYLE`                 | The image style for image generation. Default: "vivid" (also: "natural")                                                                                                                                                                                                                       |
 | `MAX_RESPONSE_SIZE_MB`        | The maximum size of the website or file content to extract (in megabytes, per URL/file). Default: "100"                                                                                                                                                                                        |
-| `FLARESOLVERR_ENDPOINT`       | Endpoint URL to your [FlareSolverr](https://github.com/FlareSolverr/FlareSolverr) instance (eg. "http://192.168.1.55:8191/v1"). If you use this, MAX_RESPONSE_SIZE_MB won't be honored since it can't stream content. For most effectiveness, use a residential IP endpoint                    |
+| `FLARESOLVERR_ENDPOINT`       | Endpoint URL to your [FlareSolverr](https://github.com/FlareSolverr/FlareSolverr) instance (eg. "<http://192.168.1.55:8191/v1>"). If you use this, MAX_RESPONSE_SIZE_MB won't be honored since it can't stream content. For most effectiveness, use a residential IP endpoint                  |
 | `KEEP_ALL_URL_CONTENT`        | Whether to feed the AI all URL content from the whole conversation thread. The website result is cached in memory. If you only want it to know about the current message's URL content (due to context size or cost), set to "FALSE". Default: "TRUE"                                          |
 | `MATTERMOST_IGNORE_SENDER_ID` | The user ID of a user to ignore (optional, useful if you have multiple chatbots that are not real bot accounts to prevent endless loops). Supports multiple, separated by comma                                                                                                                |
 | `MATTERMOST_PORT`             | The port of your Mattermost server. Default: "443"                                                                                                                                                                                                                                             |
 | `MATTERMOST_SCHEME`           | The scheme of the connection. Default: "https"                                                                                                                                                                                                                                                 |
 | `MATTERMOST_BASEPATH`         | The basepath of your Mattermost server. Default: "/api/v4"                                                                                                                                                                                                                                     |
 | `MATTERMOST_CERT_VERIFY`      | Cert verification. Default: True (also: string path to your certificate file)                                                                                                                                                                                                                  |
-| `AI_API_BASEURL`              | AI API Base URL. Default: None (which will use "https://api.openai.com/v1/"). Useful if you want to use a different AI with OpenAI compatible endpoint                                                                                                                                         |
+| `AI_API_BASEURL`              | AI API Base URL. Default: None (which will use "<https://api.openai.com/v1/>"). Useful if you want to use a different AI with OpenAI compatible endpoint                                                                                                                                       |
 | `LOG_LEVEL`                   | The log level. Default: "INFO"                                                                                                                                                                                                                                                                 |
 | `LOG_LEVEL_ROOT`              | The root log level (for other modules than this chatbot). Default: "INFO"                                                                                                                                                                                                                      |
 

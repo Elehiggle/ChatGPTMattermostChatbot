@@ -7,3 +7,4 @@ youtube-transcript-api
 yt-dlp
 openai
 PyMuPDF
+defusedxml

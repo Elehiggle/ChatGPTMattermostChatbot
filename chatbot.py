@@ -9,9 +9,10 @@ import datetime
 import logging
 import concurrent.futures
 import base64
-import xml.etree.ElementTree as ETree
-from functools import lru_cache
+from time import monotonic_ns
+from functools import lru_cache, wraps
 from io import BytesIO
+from defusedxml import ElementTree
 import certifi
 
 # noinspection PyPackageRequirements
@@ -51,6 +52,42 @@ def cdc(*args, **kwargs):
 
 # monkey patching ssl.create_default_context to fix SSL error
 ssl.create_default_context = cdc
+
+
+def timed_lru_cache(
+        _func=None, *, seconds: int = 600, maxsize: int = 128, typed: bool = False
+):
+    """Extension of functools lru_cache with a timeout
+
+    Parameters:
+    seconds (int): Timeout in seconds to clear the WHOLE cache, default = 10 minutes
+    maxsize (int): Maximum Size of the Cache
+    typed (bool): Same value of different type will be a different entry
+
+    """
+
+    def wrapper_cache(f):
+        f = lru_cache(maxsize=maxsize, typed=typed)(f)
+        f.delta = seconds * 10 ** 9
+        f.expiration = monotonic_ns() + f.delta
+
+        @wraps(f)
+        def wrapped_f(*args, **kwargs):
+            if monotonic_ns() >= f.expiration:
+                f.cache_clear()
+                f.expiration = monotonic_ns() + f.delta
+            return f(*args, **kwargs)
+
+        wrapped_f.cache_info = f.cache_info
+        wrapped_f.cache_clear = f.cache_clear
+        return wrapped_f
+
+    # To allow decorator to be used without arguments
+    if _func is None:
+        return wrapper_cache
+
+    return wrapper_cache(_func)
+
 
 # AI parameters
 api_key = os.environ["AI_API_KEY"]
@@ -96,6 +133,42 @@ tools = [
             "description": "Retrieve the latest exchange rates from the ECB, base currency: EUR",
             "parameters": {},
         },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_cryptocurrency_data_by_id",
+            "description": "Fetches cryptocurrency data by ID (ex. ethereum) or symbol (ex. BTC)",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "crypto_id": {
+                        "type": "string",
+                        "description": "The identifier or symbol of the cryptocurrency"
+                    }
+                },
+                "required": ["crypto_id"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_cryptocurrency_data_by_market_cap",
+            "description": "Fetches cryptocurrency data for the top N currencies by market cap",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "num_currencies": {
+                        "type": "integer",
+                        "description": "The number of top cryptocurrencies to retrieve. Optional",
+                        "default": 15,
+                        "max": 20
+                    }
+                },
+                "required": []
+            }
+        }
     },
 ]
 
@@ -353,7 +426,31 @@ def handle_text_generation(current_message, messages, channel_id, root_id):
             if index >= 15:  # Limit the number of function calls
                 raise Exception("Maximum amount of function calls reached")
 
-            if call.function.name == "get_exchange_rates":
+            if call.function.name == "get_cryptocurrency_data_by_market_cap":
+                arguments = json.loads(call.function.arguments)
+                num_currencies = arguments["num_currencies"] if "num_currencies" in arguments else 15
+                crypto_data = get_cryptocurrency_data_by_market_cap(num_currencies)
+                func_response = {
+                    "tool_call_id": call.id,
+                    "role": "tool",
+                    "name": call.function.name,
+                    "content": json.dumps(crypto_data),
+                }
+
+                tool_messages.append(func_response)
+            elif call.function.name == "get_cryptocurrency_data_by_id":
+                arguments = json.loads(call.function.arguments)
+                crypto_id = arguments["crypto_id"]
+                crypto_data = get_cryptocurrency_data_by_id(crypto_id)
+                func_response = {
+                    "tool_call_id": call.id,
+                    "role": "tool",
+                    "name": call.function.name,
+                    "content": json.dumps(crypto_data),
+                }
+
+                tool_messages.append(func_response)
+            elif call.function.name == "get_exchange_rates":
                 exchange_rates = get_exchange_rates()
                 func_response = {
                     "tool_call_id": call.id,
@@ -419,6 +516,7 @@ def handle_generation(current_message, messages, channel_id, root_id):
 
 
 # Function to fetch and parse EUR exchange rates
+@timed_lru_cache(seconds=7200, maxsize=100)
 def get_exchange_rates():
     ecb_url = "https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml"
 
@@ -426,7 +524,7 @@ def get_exchange_rates():
         response = client.get(ecb_url, timeout=4)
         response.raise_for_status()
 
-        root = ETree.fromstring(response.content)
+        root = ElementTree.fromstring(response.content)
         namespace = {
             "gesmes": "http://www.gesmes.org/xml/2002-08-01",
             "ecb": "http://www.ecb.int/vocabulary/2002-08-01/eurofxref",
@@ -438,6 +536,55 @@ def get_exchange_rates():
             exchange_rates[rate.get("currency")] = rate.get("rate")
 
         return exchange_rates
+
+
+@timed_lru_cache(seconds=180, maxsize=100)
+def get_cryptocurrency_data_by_market_cap(num_currencies):
+    num_currencies = min(num_currencies, 20)  # Limit to 20
+
+    url = 'https://api.coingecko.com/api/v3/coins/markets'  # possible alternatives: coincap.io, mobula.io
+    params = {
+        'vs_currency': 'usd',
+        'order': 'market_cap_desc',
+        'per_page': num_currencies,
+        'page': 1,
+        'sparkline': 'false',
+        'price_change_percentage': '24h,7d'
+    }
+
+    with httpx.Client() as client:
+        response = client.get(url, timeout=15, params=params)
+        response.raise_for_status()
+
+        data = response.json()
+        return data
+
+
+@timed_lru_cache(seconds=180, maxsize=100)
+def get_cryptocurrency_data_by_id(crypto_id):
+    crypto_id = crypto_id.lower()
+
+    url = 'https://api.coingecko.com/api/v3/coins/markets'
+    params = {
+        'vs_currency': 'usd',
+        'order': 'market_cap_desc',
+        'per_page': 500,
+        'page': 1,
+        'sparkline': 'false',
+        'price_change_percentage': '24h,7d'
+    }
+
+    with httpx.Client() as client:
+        response = client.get(url, timeout=15, params=params)
+        response.raise_for_status()
+
+        data = response.json()
+        # Filter data to find the cryptocurrency with the matching id or symbol
+        matched_crypto = next((item for item in data if crypto_id in (item['id'], item['symbol'])), None)
+        if matched_crypto:
+            return matched_crypto
+
+        return {"error": "No data found for the specified cryptocurrency ID/symbol."}
 
 
 def process_message(event_data):
@@ -881,7 +1028,7 @@ def request_link_image_content(prev_response, content_type):
     return [construct_image_content_message(content_type, image_data_base64)]
 
 
-@lru_cache(maxsize=100)
+@timed_lru_cache(seconds=1800, maxsize=100)
 def request_link_content(link):
     if yt_is_valid_url(link):
         return yt_get_content(link), []
