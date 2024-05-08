@@ -17,10 +17,11 @@ This project is a chatbot for Mattermost that integrates with the OpenAI API to 
 - **Responds to messages** mentioning "@chatbot" (or rather the chatbot's username) or direct messages
 - Extracts **images, PDFs and other files** from message attachments and from **URL links** in messages
 - Supports **FlareSolverr** to bypass Javascript/CAPTCHA restrictions
-- Supports **DALL-E-3 image generation**
+- Supports **DALL-E-3 image generation** via function calling
 - Supports the **Vision API** for describing images. Images from PDFs will also be sent here.
 - **Gets transcripts of YouTube videos** for easy tl;dw summarizations. Title, description and uploader are also
   provided
+- Accesses additional live information via function calling. Currently supported: **currency exchange rates** (via ECB)
 - Maintains context of the conversation within a thread
 - Sends typing indicators to show that the chatbot is processing the message
 - Utilizes a thread pool to handle multiple requests concurrently (due to `mattermostdriver-asyncio` being outdated)
@@ -75,7 +76,7 @@ This project is a chatbot for Mattermost that integrates with the OpenAI API to 
 
 | Parameter                     | Description                                                                                                                                                                                                                                                                                    |
 |-------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `AI_SYSTEM_PROMPT`            | The system prompt/instructions. Default: [click](https://github.com/Elehiggle/ChatGPTMattermostChatbot/blob/e5df0108c1e7b427b19c8d4eb1c02ee01bcfa444/chatbot.py#L64) (Subject to change. current_time and chatbot_username variables inside the prompt will be auto-formatted and substituted. |
+| `AI_SYSTEM_PROMPT`            | The system prompt/instructions. Default: [click](https://github.com/Elehiggle/ChatGPTMattermostChatbot/blob/b6a8b9a1467580c1cbe8db861f1ff1e938d4575f/chatbot.py#L64) (Subject to change. current_time and CHATBOT_USERNAME variables inside the prompt will be auto-formatted and substituted. |
 | `AI_TIMEOUT`                  | The timeout for the AI API call in seconds. Default: "120"                                                                                                                                                                                                                                     |
 | `MAX_TOKENS`                  | The maximum number of tokens to generate in the response. Default: "4096" (max)                                                                                                                                                                                                                |
 | `TEMPERATURE`                 | The temperature value for controlling the randomness of the generated responses (0.0 = analytical, 1.0 = fully random). Default: "1"                                                                                                                                                           |
@@ -150,7 +151,7 @@ Also there is:
 
 While the official plugin certainly will improve over time, this bot here will too and there will be certain features
 that will absolutely never make it into the official plugin, due to it primarily focusing on features for developers
-like function calling and retrieving GitHub issues, for example.
+like function calling to retrieve GitHub issues, for example.
 
 ## Known Issues
 

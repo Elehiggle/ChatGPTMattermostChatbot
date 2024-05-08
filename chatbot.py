@@ -9,6 +9,7 @@ import datetime
 import logging
 import concurrent.futures
 import base64
+import xml.etree.ElementTree as ETree
 from functools import lru_cache
 from io import BytesIO
 import certifi
@@ -75,20 +76,28 @@ If your response contains any URLs, make sure to properly escape them using Mark
 If an error occurs, provide the information from the <chatbot_error> tag to the user along with your answer.""",
 )
 
-tools = [{
-    "type": "function",
-    "function": {
-        "name": "generate_image",
-        "description": "Generates an image based on a textual prompt",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "prompt": {"type": "string", "description": "Text prompt for generating the image"}
+tools = [
+    {
+        "type": "function",
+        "function": {
+            "name": "generate_image",
+            "description": "Generates an image based on a textual prompt",
+            "parameters": {
+                "type": "object",
+                "properties": {"prompt": {"type": "string", "description": "Text prompt for generating the image"}},
+                "required": ["prompt"],
             },
-            "required": ["prompt"]
         },
     },
-}]
+    {
+        "type": "function",
+        "function": {
+            "name": "get_exchange_rates",
+            "description": "Retrieve the latest exchange rates from the ECB",
+            "parameters": {},
+        },
+    },
+]
 
 image_size = os.getenv("IMAGE_SIZE", "1024x1024")
 image_quality = os.getenv("IMAGE_QUALITY", "standard")
@@ -114,7 +123,7 @@ max_response_size = 1024 * 1024 * int(os.getenv("MAX_RESPONSE_SIZE_MB", "100"))
 keep_all_url_content = os.getenv("KEEP_ALL_URL_CONTENT", "TRUE").upper() == "TRUE"
 
 # For filtering local links
-regex_local_links = (
+REGEX_LOCAL_LINKS = (
     r"(?:127\.|192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[0-1])\.|::1|(?<![:.\w])[fF][cCdD](?![:.\w])|localhost)"
 )
 
@@ -134,8 +143,8 @@ driver = Driver(
 )
 
 # Chatbot account username, automatically fetched
-chatbot_username = ""
-chatbot_username_at = ""
+CHATBOT_USERNAME = ""
+CHATBOT_USERNAME_AT = ""
 
 # Create an AI client instance
 ai_client = OpenAI(api_key=api_key, base_url=ai_api_baseurl)
@@ -153,7 +162,7 @@ compatible_image_content_types = [
 
 def get_system_instructions():
     current_time = datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
-    return system_prompt_unformatted.format(current_time=current_time, chatbot_username=chatbot_username)
+    return system_prompt_unformatted.format(current_time=current_time, CHATBOT_USERNAME=CHATBOT_USERNAME)
 
 
 @lru_cache(maxsize=1000)
@@ -281,7 +290,7 @@ def split_message(msg, max_length=4000):
 def handle_image_generation(prompt, is_raw, channel_id, root_id):
     if is_raw:
         # Removing a leading '#' and any whitespace following it
-        prompt = re.sub(r'^#(\s*)', '', prompt)
+        prompt = re.sub(r"^#(\s*)", "", prompt)
         prompt = f"I NEED to test how the tool works with extremely simple prompts. DO NOT add any detail, just use it AS-IS: {prompt}"
 
     response = ai_client.images.generate(
@@ -305,7 +314,9 @@ def handle_image_generation(prompt, is_raw, channel_id, root_id):
     file_id = driver.files.upload_file(
         channel_id=channel_id,
         files={"files": ("image.png", decoded_image_data)},
-    )["file_infos"][0]["id"]
+    )[
+        "file_infos"
+    ][0]["id"]
 
     # Send the API response back to the Mattermost channel as a reply to the thread or as a new thread
     driver.posts.create_post(
@@ -330,26 +341,64 @@ def handle_text_generation(current_message, messages, channel_id, root_id):
         tool_choice="auto",  # Let model decide to call the function or not
     )
 
+    initial_message_response = response.choices[0].message
+
+    tool_messages = []
+
     # Check if tool calls are present in the response
-    if response.choices[0].message.tool_calls:
-        image_prompt_is_raw = current_message.startswith("#")
-        tool_calls = response.choices[0].message.tool_calls
+    if initial_message_response.tool_calls:
+        tool_calls = initial_message_response.tool_calls
+        prompt_is_raw = current_message.startswith("#")
         for index, call in enumerate(tool_calls):
-            if index >= 5:  # Limit the number of function calls to 5
+            if index >= 15:  # Limit the number of function calls
                 raise Exception("Maximum amount of function calls reached")
 
-            if call.function.name == "generate_image":
-                arguments = json.loads(call.function.arguments)
-                image_prompt = arguments['prompt']
-                handle_image_generation(current_message if image_prompt_is_raw else image_prompt, image_prompt_is_raw,
-                                        channel_id, root_id)
+            if call.function.name == "get_exchange_rates":
+                exchange_rates = get_exchange_rates()
+                func_response = {
+                    "tool_call_id": call.id,
+                    "role": "tool",
+                    "name": call.function.name,
+                    "content": json.dumps(exchange_rates)
+                }
 
-        return  # Exit after handling function calls
+                tool_messages.append(func_response)
+            elif call.function.name == "generate_image":
+                arguments = json.loads(call.function.arguments)
+                image_prompt = arguments["prompt"]
+                handle_image_generation(
+                    current_message if prompt_is_raw else image_prompt, prompt_is_raw, channel_id, root_id
+                )
+
+        # If all tool calls were image generation, we do not need to continue here. Refactor this sometime
+        image_gen_calls_only = all(call.function.name == "generate_image" for call in tool_calls)
+        if image_gen_calls_only:
+            return
+
+        # Remove all generate_image tool calls from the message for API compliance, as we handle images differently
+        response.choices[0].message.tool_calls = [call for call in tool_calls if call.function.name != "generate_image"]
+
+    # Requery in case there are new messages from function calls
+    if tool_messages:
+        # Add the initial response to the messages array as it contains infos about tool calls
+        messages.append(initial_message_response)
+
+        messages.extend(tool_messages)
+
+        response = ai_client.chat.completions.create(
+            model=model,
+            max_tokens=max_tokens,
+            messages=[{"role": "system", "content": get_system_instructions()}, *messages],
+            timeout=timeout,
+            temperature=temperature,
+            tools=tools,
+            tool_choice="none",
+        )
 
     response_text = response.choices[0].message.content
 
-    if not response_text:
-        raise Exception("Empty AI response, likely API error")
+    if response_text is None:
+        raise Exception("Empty AI response, likely API error or mishandling")
 
     # Split the response into multiple messages if necessary
     response_parts = split_message(response_text)
@@ -367,6 +416,27 @@ def handle_generation(current_message, messages, channel_id, root_id):
     except Exception as e:
         logger.error(f"Error: {str(e)} {traceback.format_exc()}")
         driver.posts.create_post({"channel_id": channel_id, "message": f"Error occurred: {str(e)}", "root_id": root_id})
+
+
+# Function to fetch and parse EUR exchange rates
+def get_exchange_rates():
+    ecb_url = "https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml"
+
+    with httpx.Client() as client:
+        response = client.get(ecb_url, timeout=4)
+
+        root = ETree.fromstring(response.content)
+        namespace = {
+            "gesmes": "http://www.gesmes.org/xml/2002-08-01",
+            "ecb": "http://www.ecb.int/vocabulary/2002-08-01/eurofxref",
+        }
+
+        rates = root.find(".//ecb:Cube/ecb:Cube", namespaces=namespace)
+        exchange_rates = {}
+        for rate in rates.findall("ecb:Cube", namespaces=namespace):
+            exchange_rates[rate.get("currency")] = rate.get("rate")
+
+        return exchange_rates
 
 
 def process_message(event_data):
@@ -420,7 +490,7 @@ def process_message(event_data):
                 image_messages = []
 
                 for link in links:
-                    if re.search(regex_local_links, link):
+                    if re.search(REGEX_LOCAL_LINKS, link):
                         logger.info(f"Skipping local URL: {link}")
                         continue
 
@@ -479,7 +549,7 @@ def should_ignore_post(post):
 
 def extract_post_data(post, event_data):
     # Remove the "@chatbot" mention from the message
-    message = post["message"].replace(chatbot_username_at, "").strip()
+    message = post["message"].replace(CHATBOT_USERNAME_AT, "").strip()
     channel_id = post["channel_id"]
     sender_name = sanitize_username(event_data["data"]["sender_name"])
     root_id = post["root_id"]
@@ -526,7 +596,7 @@ def get_thread_posts(root_id, post_id):
     sorted_posts = sorted(thread["posts"].values(), key=lambda x: x["create_at"])
     for thread_post in sorted_posts:
         thread_sender_name = get_username_from_user_id(thread_post["user_id"])
-        thread_message = thread_post["message"].replace(chatbot_username_at, "").strip()
+        thread_message = thread_post["message"].replace(CHATBOT_USERNAME_AT, "").strip()
         role = "assistant" if thread_post["user_id"] == driver.client.userid else "user"
         messages.append((thread_post, thread_sender_name, role, thread_message))
         if thread_post["id"] == post_id:
@@ -537,7 +607,7 @@ def get_thread_posts(root_id, post_id):
 
 def is_chatbot_invoked(post, post_id, root_id, channel_display_name):
     # We directly access the message here as we filter the mention earlier
-    if chatbot_username_at in post["message"]:
+    if CHATBOT_USERNAME_AT in post["message"]:
         return True
 
     # It is a direct message
@@ -552,7 +622,7 @@ def is_chatbot_invoked(post, post_id, root_id, channel_display_name):
                 return True
 
             # Needed when you mention the chatbot and send a fast message afterward
-            if chatbot_username_at in thread_post["message"]:
+            if CHATBOT_USERNAME_AT in thread_post["message"]:
                 return True
 
     return False
@@ -820,7 +890,7 @@ def request_link_content(link):
         with client.stream("GET", link, timeout=4, follow_redirects=True) as response:
             final_url = str(response.url)
 
-            if re.search(regex_local_links, final_url):
+            if re.search(REGEX_LOCAL_LINKS, final_url):
                 logger.info(f"Skipping local URL after redirection: {final_url}")
                 raise Exception("Local URL is disallowed")
 
@@ -919,9 +989,9 @@ def main():
     try:
         # Log in to the Mattermost server
         driver.login()
-        global chatbot_username, chatbot_username_at
-        chatbot_username = driver.client.username
-        chatbot_username_at = f"@{chatbot_username}"
+        global CHATBOT_USERNAME, CHATBOT_USERNAME_AT
+        CHATBOT_USERNAME = driver.client.username
+        CHATBOT_USERNAME_AT = f"@{CHATBOT_USERNAME}"
 
         logger.debug(f"SYSTEM PROMPT: {get_system_instructions()}")
 
