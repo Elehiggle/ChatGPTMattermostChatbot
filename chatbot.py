@@ -93,7 +93,7 @@ tools = [
         "type": "function",
         "function": {
             "name": "get_exchange_rates",
-            "description": "Retrieve the latest exchange rates from the ECB",
+            "description": "Retrieve the latest exchange rates from the ECB, base currency: EUR",
             "parameters": {},
         },
     },
@@ -359,7 +359,7 @@ def handle_text_generation(current_message, messages, channel_id, root_id):
                     "tool_call_id": call.id,
                     "role": "tool",
                     "name": call.function.name,
-                    "content": json.dumps(exchange_rates)
+                    "content": json.dumps(exchange_rates),
                 }
 
                 tool_messages.append(func_response)
@@ -432,7 +432,7 @@ def get_exchange_rates():
         }
 
         rates = root.find(".//ecb:Cube/ecb:Cube", namespaces=namespace)
-        exchange_rates = {}
+        exchange_rates = {"EUR": "1"}  # We add 1:1 EUR here to additionally indicate the base currency is EUR
         for rate in rates.findall("ecb:Cube", namespaces=namespace):
             exchange_rates[rate.get("currency")] = rate.get("rate")
 
