@@ -13,6 +13,7 @@ from time import monotonic_ns
 from functools import lru_cache, wraps
 from io import BytesIO
 from defusedxml import ElementTree
+import yfinance
 import certifi
 
 # noinspection PyPackageRequirements
@@ -170,6 +171,23 @@ tools = [
             }
         }
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_stock_ticker_data",
+            "description": "Retrieves information about a specified company from the stock market",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "ticker_symbol": {
+                        "type": "string",
+                        "description": "The stock ticker symbol of the company (ex. AAPL)"
+                    }
+                },
+                "required": ["ticker_symbol"]
+            }
+        }
+    }
 ]
 
 image_size = os.getenv("IMAGE_SIZE", "1024x1024")
@@ -426,7 +444,19 @@ def handle_text_generation(current_message, messages, channel_id, root_id):
             if index >= 15:  # Limit the number of function calls
                 raise Exception("Maximum amount of function calls reached")
 
-            if call.function.name == "get_cryptocurrency_data_by_market_cap":
+            if call.function.name == "get_stock_ticker_data":
+                arguments = json.loads(call.function.arguments)
+                ticket_symbol = arguments["ticker_symbol"]
+                stock_data = get_stock_ticker_data(ticket_symbol)
+                func_response = {
+                    "tool_call_id": call.id,
+                    "role": "tool",
+                    "name": call.function.name,
+                    "content": json.dumps(stock_data),
+                }
+
+                tool_messages.append(func_response)
+            elif call.function.name == "get_cryptocurrency_data_by_market_cap":
                 arguments = json.loads(call.function.arguments)
                 num_currencies = arguments["num_currencies"] if "num_currencies" in arguments else 15
                 crypto_data = get_cryptocurrency_data_by_market_cap(num_currencies)
@@ -515,7 +545,24 @@ def handle_generation(current_message, messages, channel_id, root_id):
         driver.posts.create_post({"channel_id": channel_id, "message": f"Error occurred: {str(e)}", "root_id": root_id})
 
 
-# Function to fetch and parse EUR exchange rates
+@timed_lru_cache(seconds=300, maxsize=100)
+def get_stock_ticker_data(ticker_symbol):
+    stock = yfinance.Ticker(ticker_symbol)
+
+    stock_data = {
+        "info": str(stock.info),
+        "calendar": str(stock.calendar),
+        "news": str(stock.news),
+        "dividends": str(stock.dividends),
+        "splits": str(stock.splits),
+        "quarterly_financials": str(stock.quarterly_financials),
+        "financials": str(stock.financials),
+        "cashflow": str(stock.cashflow),
+    }
+
+    return json.dumps(stock_data)
+
+
 @timed_lru_cache(seconds=7200, maxsize=100)
 def get_exchange_rates():
     ecb_url = "https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml"

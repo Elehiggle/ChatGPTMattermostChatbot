@@ -21,10 +21,11 @@ This project is a chatbot for Mattermost that integrates with the OpenAI API to 
 - Supports the **Vision API** for describing images. Images from PDFs will also be sent here.
 - **Gets transcripts of YouTube videos** for easy tl;dw summarizations. Title, description and uploader are also
   provided
-- Accesses additional live information via function calling. Currently supported: **cryptocurrency data** (
+- Accesses additional live information via function calling. Currently supported: **stock data** (via Yahoo Finance, eg.
+  ask about AAPL), **cryptocurrency data**
+  (
   via [Coingecko](https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=500&page=1&sparkline=false&price_change_percentage=24h%2C7d)),
-  **fiat currency exchange rates**
-  (via [ECB](https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml))
+  **fiat currency exchange rates** (via [ECB](https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml))
 - Maintains context of the conversation within a thread
 - Sends typing indicators to show that the chatbot is processing the message
 - Utilizes a thread pool to handle multiple requests concurrently (due to `mattermostdriver-asyncio` being outdated)
@@ -60,7 +61,7 @@ This project is a chatbot for Mattermost that integrates with the OpenAI API to 
     ```
    _or alternatively:_
     ```bash
-    python3.12 -m pip install openai mattermostdriver certifi beautifulsoup4 pillow httpx youtube-transcript-api yt-dlp PyMuPDF defusedxml
+    python3.12 -m pip install openai mattermostdriver certifi beautifulsoup4 pillow httpx youtube-transcript-api yt-dlp PyMuPDF defusedxml yfinance
     ```
 
 4. Set the following environment variables with your own values:
