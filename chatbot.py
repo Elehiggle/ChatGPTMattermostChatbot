@@ -493,9 +493,8 @@ def handle_text_generation(current_message, messages, channel_id, root_id):
             elif call.function.name == "generate_image":
                 arguments = json.loads(call.function.arguments)
                 image_prompt = arguments["prompt"]
-                handle_image_generation(
-                    current_message if prompt_is_raw else image_prompt, prompt_is_raw, channel_id, root_id
-                )
+                thread_pool.submit(handle_image_generation, current_message if prompt_is_raw else image_prompt,
+                                   prompt_is_raw, channel_id, root_id)
 
         # If all tool calls were image generation, we do not need to continue here. Refactor this sometime
         image_gen_calls_only = all(call.function.name == "generate_image" for call in tool_calls)
