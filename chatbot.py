@@ -215,7 +215,7 @@ keep_all_url_content = os.getenv("KEEP_ALL_URL_CONTENT", "TRUE").upper() == "TRU
 
 # For filtering local links
 REGEX_LOCAL_LINKS = (
-    r"(?:127\.|192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[0-1])\.|::1|(?<![:.\w])[fF][cCdD](?![:.\w])|localhost)"
+    r'(?:^|\b)(127\.|192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[0-1])\.|::1|[fF][cCdD]00::|\blocalhost\b)(?:$|\b)'
 )
 
 # Create a driver instance
@@ -495,6 +495,15 @@ def handle_text_generation(current_message, messages, channel_id, root_id):
                 image_prompt = arguments["prompt"]
                 thread_pool.submit(handle_image_generation, current_message if prompt_is_raw else image_prompt,
                                    prompt_is_raw, channel_id, root_id)
+            else:
+                func_response = {
+                    "tool_call_id": call.id,
+                    "role": "tool",
+                    "name": call.function.name,
+                    "content": "You hallucinated this function call, it does not exist",
+                }
+
+                tool_messages.append(func_response)
 
         # If all tool calls were image generation, we do not need to continue here. Refactor this sometime
         image_gen_calls_only = all(call.function.name == "generate_image" for call in tool_calls)
