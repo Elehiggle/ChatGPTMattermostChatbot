@@ -1020,7 +1020,7 @@ def request_flaresolverr(link):
         "url": link,
         "maxTimeout": 30000,
     }
-    response = httpx.post(flaresolverr_endpoint, json=payload)
+    response = httpx.post(flaresolverr_endpoint, json=payload, timeout=30.0)
     response.raise_for_status()
     data = response.json()
 
