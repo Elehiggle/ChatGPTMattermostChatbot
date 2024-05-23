@@ -18,6 +18,7 @@ import certifi
 
 # noinspection PyPackageRequirements
 import fitz
+import pymupdf4llm
 import httpx
 from PIL import Image
 from mattermostdriver.driver import Driver
@@ -25,7 +26,6 @@ from bs4 import BeautifulSoup
 from youtube_transcript_api import YouTubeTranscriptApi
 from yt_dlp import YoutubeDL
 from openai import OpenAI
-from helpers.pymupdf_rag import to_markdown
 
 log_level_root = os.getenv("LOG_LEVEL_ROOT", "INFO").upper()
 logging.basicConfig(level=log_level_root)
@@ -861,7 +861,7 @@ def extract_pdf_content(stream):
     image_messages = []
 
     with fitz.open(None, stream, "pdf") as pdf:
-        pdf_text_content += to_markdown(pdf).strip()
+        pdf_text_content += pymupdf4llm.to_markdown(pdf).strip()
 
         for page in pdf:
             # Extract images

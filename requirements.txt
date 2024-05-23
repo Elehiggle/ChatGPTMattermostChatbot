@@ -9,3 +9,4 @@ openai>=1.25.2
 PyMuPDF>=1.24.2
 defusedxml>=0.7.1
 yfinance>=0.2.38
+pymupdf4llm>=0.0.3
