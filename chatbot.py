@@ -55,9 +55,7 @@ def cdc(*args, **kwargs):
 ssl.create_default_context = cdc
 
 
-def timed_lru_cache(
-        _func=None, *, seconds: int = 600, maxsize: int = 128, typed: bool = False
-):
+def timed_lru_cache(_func=None, *, seconds: int = 600, maxsize: int = 128, typed: bool = False):
     """Extension of functools lru_cache with a timeout
 
     Parameters:
@@ -143,14 +141,11 @@ tools = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "crypto_id": {
-                        "type": "string",
-                        "description": "The identifier or symbol of the cryptocurrency"
-                    }
+                    "crypto_id": {"type": "string", "description": "The identifier or symbol of the cryptocurrency"}
                 },
-                "required": ["crypto_id"]
-            }
-        }
+                "required": ["crypto_id"],
+            },
+        },
     },
     {
         "type": "function",
@@ -164,12 +159,12 @@ tools = [
                         "type": "integer",
                         "description": "The number of top cryptocurrencies to retrieve. Optional",
                         "default": 15,
-                        "max": 20
+                        "max": 20,
                     }
                 },
-                "required": []
-            }
-        }
+                "required": [],
+            },
+        },
     },
     {
         "type": "function",
@@ -181,13 +176,13 @@ tools = [
                 "properties": {
                     "ticker_symbol": {
                         "type": "string",
-                        "description": "The stock ticker symbol of the company (ex. AAPL)"
+                        "description": "The stock ticker symbol of the company (ex. AAPL)",
                     }
                 },
-                "required": ["ticker_symbol"]
-            }
-        }
-    }
+                "required": ["ticker_symbol"],
+            },
+        },
+    },
 ]
 
 image_size = os.getenv("IMAGE_SIZE", "1024x1024")
@@ -215,7 +210,7 @@ keep_all_url_content = os.getenv("KEEP_ALL_URL_CONTENT", "TRUE").upper() == "TRU
 
 # For filtering local links
 REGEX_LOCAL_LINKS = (
-    r'(?:^|\b)(127\.|192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[0-1])\.|::1|[fF][cCdD]00::|\blocalhost\b)(?:$|\b)'
+    r"(?:^|\b)(127\.|192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[0-1])\.|::1|[fF][cCdD]00::|\blocalhost\b)(?:$|\b)"
 )
 
 # Create a driver instance
@@ -493,8 +488,13 @@ def handle_text_generation(current_message, messages, channel_id, root_id):
             elif call.function.name == "generate_image":
                 arguments = json.loads(call.function.arguments)
                 image_prompt = arguments["prompt"]
-                thread_pool.submit(handle_image_generation, current_message if prompt_is_raw else image_prompt,
-                                   prompt_is_raw, channel_id, root_id)
+                thread_pool.submit(
+                    handle_image_generation,
+                    current_message if prompt_is_raw else image_prompt,
+                    prompt_is_raw,
+                    channel_id,
+                    root_id,
+                )
             else:
                 func_response = {
                     "tool_call_id": call.id,
@@ -597,14 +597,14 @@ def get_exchange_rates():
 def get_cryptocurrency_data_by_market_cap(num_currencies):
     num_currencies = min(num_currencies, 20)  # Limit to 20
 
-    url = 'https://api.coingecko.com/api/v3/coins/markets'  # possible alternatives: coincap.io, mobula.io
+    url = "https://api.coingecko.com/api/v3/coins/markets"  # possible alternatives: coincap.io, mobula.io
     params = {
-        'vs_currency': 'usd',
-        'order': 'market_cap_desc',
-        'per_page': num_currencies,
-        'page': 1,
-        'sparkline': 'false',
-        'price_change_percentage': '24h,7d'
+        "vs_currency": "usd",
+        "order": "market_cap_desc",
+        "per_page": num_currencies,
+        "page": 1,
+        "sparkline": "false",
+        "price_change_percentage": "24h,7d",
     }
 
     with httpx.Client() as client:
@@ -619,14 +619,14 @@ def get_cryptocurrency_data_by_market_cap(num_currencies):
 def get_cryptocurrency_data_by_id(crypto_id):
     crypto_id = crypto_id.lower()
 
-    url = 'https://api.coingecko.com/api/v3/coins/markets'
+    url = "https://api.coingecko.com/api/v3/coins/markets"
     params = {
-        'vs_currency': 'usd',
-        'order': 'market_cap_desc',
-        'per_page': 500,
-        'page': 1,
-        'sparkline': 'false',
-        'price_change_percentage': '24h,7d'
+        "vs_currency": "usd",
+        "order": "market_cap_desc",
+        "per_page": 500,
+        "page": 1,
+        "sparkline": "false",
+        "price_change_percentage": "24h,7d",
     }
 
     with httpx.Client() as client:
@@ -635,7 +635,7 @@ def get_cryptocurrency_data_by_id(crypto_id):
 
         data = response.json()
         # Filter data to find the cryptocurrency with the matching id or symbol
-        matched_crypto = next((item for item in data if crypto_id in (item['id'], item['symbol'])), None)
+        matched_crypto = next((item for item in data if crypto_id in (item["id"], item["symbol"])), None)
         if matched_crypto:
             return matched_crypto
 
@@ -1057,6 +1057,14 @@ def request_link_text_content(link, prev_response):
 
     soup = BeautifulSoup(raw_content, "html.parser")
     website_content = soup.get_text(" | ", strip=True)
+
+    if website_content == "New Tab":
+        logger.debug(
+            "Website content is 'New Tab', retrying with HTTPX."
+        )  # FlareSolverr issue I haven't figured out yet, happens with direct .CSV files for example
+        raw_content = request_httpx(prev_response)
+        soup = BeautifulSoup(raw_content, "html.parser")
+        website_content = soup.get_text(" | ", strip=True)
 
     if not website_content:
         raise Exception("No text content found on website")
