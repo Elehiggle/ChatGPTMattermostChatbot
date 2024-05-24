@@ -26,6 +26,7 @@ from bs4 import BeautifulSoup
 from youtube_transcript_api import YouTubeTranscriptApi
 from yt_dlp import YoutubeDL
 from openai import OpenAI
+import tiktoken
 
 log_level_root = os.getenv("LOG_LEVEL_ROOT", "INFO").upper()
 logging.basicConfig(level=log_level_root)
@@ -161,8 +162,7 @@ tools = [
                         "default": 15,
                         "max": 20,
                     }
-                },
-                "required": [],
+                }
             },
         },
     },
@@ -234,6 +234,9 @@ CHATBOT_USERNAME_AT = ""
 
 # Create an AI client instance
 ai_client = OpenAI(api_key=api_key, base_url=ai_api_baseurl)
+
+# Used to count tokens, do not modify unless you know what you are doing
+model_encoder = tiktoken.encoding_for_model("gpt-4o")
 
 # Create a thread pool with a fixed number of worker threads
 thread_pool = concurrent.futures.ThreadPoolExecutor(max_workers=5)
@@ -428,6 +431,8 @@ def handle_text_generation(current_message, messages, channel_id, root_id):
     )
 
     initial_message_response = response.choices[0].message
+    prompt_tokens = response.usage.prompt_tokens
+    completion_tokens = response.usage.completion_tokens
 
     tool_messages = []
 
@@ -530,6 +535,9 @@ def handle_text_generation(current_message, messages, channel_id, root_id):
             tool_choice="none",
         )
 
+        prompt_tokens += response.usage.prompt_tokens
+        completion_tokens += response.usage.completion_tokens
+
     response_text = response.choices[0].message.content
 
     if response_text is None:
@@ -542,6 +550,12 @@ def handle_text_generation(current_message, messages, channel_id, root_id):
     for part in response_parts:
         # Send the API response back to the Mattermost channel as a reply to the thread or as a new thread
         driver.posts.create_post({"channel_id": channel_id, "message": part, "root_id": root_id})
+
+    prompt_tokens_cost = 5 / 1_000_000 * prompt_tokens
+    completion_tokens_cost = 15 / 1_000_000 * completion_tokens
+    tokens_cost_total = prompt_tokens_cost + completion_tokens_cost
+    logger.debug(
+        f"Text Token cost: ${tokens_cost_total:.4f} | Input ${prompt_tokens_cost:.4f} ({prompt_tokens}) + Output ${completion_tokens_cost:.4f} ({completion_tokens})")
 
 
 def handle_generation(current_message, messages, channel_id, root_id):
@@ -1065,6 +1079,13 @@ def request_link_text_content(link, prev_response):
         raw_content = request_httpx(prev_response)
         soup = BeautifulSoup(raw_content, "html.parser")
         website_content = soup.get_text(" | ", strip=True)
+
+    tokens = len(model_encoder.encode(website_content))
+
+    if tokens > 120000:
+        logger.debug("Website text content too large, trying to extract article content only")
+        article_texts = [article.get_text(" | ", strip=True) for article in soup.find_all('article')]
+        website_content = " | ".join(article_texts)
 
     if not website_content:
         raise Exception("No text content found on website")
