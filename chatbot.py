@@ -107,8 +107,7 @@ Objects sent to you are structured in JSON, which includes the message of the us
 If a user sends a link, use the extracted URL content provided, do not assume or make up stories based on the URL alone. 
 If a user sends a YouTube link, primarily focus on the transcript and do not unnecessarily repeat the title, description or uploader of the video. 
 In your answer DO NOT contain the link to the video/website the user just provided to you as the user already knows it, unless the task requires it. 
-If your response contains any URLs, make sure to properly escape them using Markdown syntax for display purposes.
-If an error occurs, provide the information from the <chatbot_error> tag to the user along with your answer.""",
+If your response contains any URLs, make sure to properly escape them using Markdown syntax for display purposes.""",
 )
 
 tools = [
@@ -594,7 +593,7 @@ def get_stock_ticker_data(arguments):
         "cashflow": str(stock.cashflow),
     }
 
-    return json.dumps(stock_data)
+    return stock_data
 
 
 @timed_lru_cache(seconds=7200, maxsize=100)
@@ -668,7 +667,7 @@ def get_cryptocurrency_data_by_id(arguments):
         if matched_crypto:
             return matched_crypto
 
-        return {"error": "No data found for the specified cryptocurrency ID/symbol."}
+        return "No data found for the specified cryptocurrency ID/symbol"
 
 
 def process_message(event_data):
@@ -711,7 +710,6 @@ def process_message(event_data):
                 # We don't want to extract information from links the assistant sent
                 if thread_role == "assistant":
                     content["message"] = thread_message_text
-                    content = json.dumps(content)
                     messages.append(construct_text_message(thread_sender_name, thread_role, content))
                     continue
 
@@ -719,7 +717,6 @@ def process_message(event_data):
                 is_last_message = index == len(thread_messages) - 1
                 if not keep_all_url_content and not is_last_message:
                     content["message"] = thread_message_text
-                    content = json.dumps(content)
                     messages.append(construct_text_message(thread_sender_name, thread_role, content))
                     continue
 
@@ -755,10 +752,8 @@ def process_message(event_data):
 
                 content["message"] = thread_message_text
 
-                content = json.dumps(content)
-
                 if image_messages:
-                    image_messages.append({"type": "text", "text": content})
+                    image_messages.append({"type": "text", "text": json.dumps(content)})
                     messages.append({"name": thread_sender_name, "role": "user", "content": image_messages})
                 else:
                     messages.append(construct_text_message(thread_sender_name, "user", content))
@@ -811,7 +806,7 @@ def construct_text_message(name, role, message):
         "content": [
             {
                 "type": "text",
-                "text": f"{message}",
+                "text": json.dumps(message),
             }
         ],
     }
