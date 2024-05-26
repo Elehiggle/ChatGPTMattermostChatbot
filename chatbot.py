@@ -709,15 +709,13 @@ def process_message(event_data):
 
                 # We don't want to extract information from links the assistant sent
                 if thread_role == "assistant":
-                    content["message"] = thread_message_text
-                    messages.append(construct_text_message(thread_sender_name, thread_role, content))
+                    messages.append(construct_text_message(thread_sender_name, thread_role, thread_message_text))
                     continue
 
                 # If keep content is disabled, we will skip the remaining code to grab content unless its the last message
                 is_last_message = index == len(thread_messages) - 1
                 if not keep_all_url_content and not is_last_message:
-                    content["message"] = thread_message_text
-                    messages.append(construct_text_message(thread_sender_name, thread_role, content))
+                    messages.append(construct_text_message(thread_sender_name, thread_role, thread_message_text))
                     continue
 
                 links = re.findall(r"(https?://\S+)", thread_message_text, re.IGNORECASE)  # Allow http and https links
