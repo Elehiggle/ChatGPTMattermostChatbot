@@ -103,7 +103,7 @@ You are a helpful assistant used in a Mattermost chat. The current UTC time is {
 Whenever users asks you for help you will provide them with succinct answers formatted using Markdown. Do not unnecessarily greet people with their name, 
 do not be apologetic. 
 For tasks requiring reasoning or math, use the Chain-of-Thought methodology to explain your step-by-step calculations or logic before presenting your answer. 
-Objects sent to you are structured in JSON, which includes the message of the user, and might include file data, website data, and more. Do not reply in a JSON-object format. 
+Extra data is sent to you in a structured way, which might include file data, website data, and more, which is sent alongside the user message. 
 If a user sends a link, use the extracted URL content provided, do not assume or make up stories based on the URL alone. 
 If a user sends a YouTube link, primarily focus on the transcript and do not unnecessarily repeat the title, description or uploader of the video. 
 In your answer DO NOT contain the link to the video/website the user just provided to you as the user already knows it, unless the task requires it. 
@@ -453,7 +453,7 @@ def handle_text_generation(current_message, messages, channel_id, root_id):
                     "tool_call_id": call.id,
                     "role": "tool",
                     "name": call.function.name,
-                    "content": json.dumps(data),
+                    "content": str(data),
                 }
 
                 tool_messages.append(func_response)
@@ -463,7 +463,7 @@ def handle_text_generation(current_message, messages, channel_id, root_id):
                     "tool_call_id": call.id,
                     "role": "tool",
                     "name": call.function.name,
-                    "content": json.dumps(data),
+                    "content": str(data),
                 }
 
                 tool_messages.append(func_response)
@@ -473,7 +473,7 @@ def handle_text_generation(current_message, messages, channel_id, root_id):
                     "tool_call_id": call.id,
                     "role": "tool",
                     "name": call.function.name,
-                    "content": json.dumps(data),
+                    "content": str(data),
                 }
 
                 tool_messages.append(func_response)
@@ -483,7 +483,7 @@ def handle_text_generation(current_message, messages, channel_id, root_id):
                     "tool_call_id": call.id,
                     "role": "tool",
                     "name": call.function.name,
-                    "content": json.dumps(data),
+                    "content": str(data),
                 }
 
                 tool_messages.append(func_response)
@@ -750,10 +750,10 @@ def process_message(event_data):
                 if not content["website_data"]:
                     del content["website_data"]
 
-                content["message"] = thread_message_text
+                content = f"{str(content)}{thread_message_text}" if content else thread_message_text
 
                 if image_messages:
-                    image_messages.append({"type": "text", "text": json.dumps(content)})
+                    image_messages.append({"type": "text", "text": content})
                     messages.append({"name": thread_sender_name, "role": "user", "content": image_messages})
                 else:
                     messages.append(construct_text_message(thread_sender_name, "user", content))
@@ -806,7 +806,7 @@ def construct_text_message(name, role, message):
         "content": [
             {
                 "type": "text",
-                "text": json.dumps(message),
+                "text": str(message),
             }
         ],
     }
