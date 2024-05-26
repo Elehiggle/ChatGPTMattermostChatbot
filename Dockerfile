@@ -2,7 +2,7 @@ FROM python:3.12.3-slim
 
 WORKDIR /app
 
-# Install Chromium
+# Install Chromium. Those are public API keys that even Debian uses.
 RUN apt-get update && \
     apt-get install -y chromium --no-install-recommends && \
     apt-get clean && \

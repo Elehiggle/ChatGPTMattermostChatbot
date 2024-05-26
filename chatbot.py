@@ -702,7 +702,6 @@ def get_stock_ticker_data(arguments):
     return stock_data
 
 
-@timed_lru_cache(seconds=120, maxsize=10)
 async def raw_html_to_image(raw_html, url):
     browser = await uc.start(
         browser_executable_path=browser_executable_path, headless=True, browser_args=["--window-size=1920,1080"]
@@ -715,7 +714,7 @@ async def raw_html_to_image(raw_html, url):
     page = await browser.get(url)
     await page  # wait for events to be processed
 
-    with tempfile.NamedTemporaryFile(delete=False, delete_on_close=False, suffix=".png") as temp_file:
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as temp_file:
         temp_screen_path = temp_file.name
 
     try:
