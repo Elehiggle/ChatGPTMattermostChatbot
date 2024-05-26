@@ -420,7 +420,7 @@ def handle_html_image_generation(raw_html_code, url, channel_id, root_id):
         driver.posts.create_post(
             {
                 "channel_id": channel_id,
-                "message": "_HTML preview:_",
+                "message": "_Web preview:_",
                 "root_id": root_id,
                 "file_ids": [file_id],
             }
@@ -710,6 +710,11 @@ async def raw_html_to_image(raw_html, url):
     if raw_html:
         encoded_html = base64.b64encode(raw_html.encode("utf-8")).decode("utf-8")
         url = f"data:text/html;base64,{encoded_html}"
+
+    if url:
+        if re.search(REGEX_LOCAL_LINKS, url):
+            logger.info(f"Skipping local URL for screenshotting: {url}")
+            raise Exception("Local URLs are not allowed for screenshotting")
 
     page = await browser.get(url)
     await page  # wait for events to be processed
