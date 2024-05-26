@@ -9,6 +9,7 @@ import datetime
 import logging
 import concurrent.futures
 import base64
+import tempfile
 from time import monotonic_ns
 from functools import lru_cache, wraps
 from io import BytesIO
@@ -27,6 +28,7 @@ from youtube_transcript_api import YouTubeTranscriptApi
 from yt_dlp import YoutubeDL
 from openai import OpenAI
 import tiktoken
+import nodriver as uc
 
 log_level_root = os.getenv("LOG_LEVEL_ROOT", "INFO").upper()
 logging.basicConfig(level=log_level_root)
@@ -111,6 +113,26 @@ If your response contains any URLs, make sure to properly escape them using Mark
 )
 
 tools = [
+    {
+        "type": "function",
+        "function": {
+            "name": "raw_html_to_image",
+            "description": "Generates an image from raw HTML code. You can also pass a URL which will be screenshotted, but only do that if its specifically requested.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "raw_html_code": {
+                        "type": "string",
+                        "description": "Full valid HTML code to be opened on a browser and taken a screenshot of. Only one parameter is allowed",
+                    },
+                    "url": {
+                        "type": "string",
+                        "description": "URL to be opened on a browser and taken a screenshot of. Only one parameter is allowed",
+                    },
+                },
+            },
+        },
+    },
     {
         "type": "function",
         "function": {
@@ -200,10 +222,14 @@ mattermost_mfa_token = os.getenv("MATTERMOST_MFA_TOKEN", "")
 
 flaresolverr_endpoint = os.getenv("FLARESOLVERR_ENDPOINT", "")
 
+browser_executable_path = os.getenv("BROWSER_EXECUTABLE_PATH", "/usr/bin/chromium")
+
 # Maximum website/file size
 max_response_size = 1024 * 1024 * int(os.getenv("MAX_RESPONSE_SIZE_MB", "100"))
 
 keep_all_url_content = os.getenv("KEEP_ALL_URL_CONTENT", "TRUE").upper() == "TRUE"
+
+tool_use_enabled = os.getenv("TOOL_USE_ENABLED", "TRUE").upper() == "TRUE"
 
 # For filtering local links
 REGEX_LOCAL_LINKS = (
@@ -371,157 +397,121 @@ def split_message(msg, max_length=4000):
     return chunks
 
 
+def handle_html_image_generation(raw_html_code, url, channel_id, root_id):
+    stop_typing_event = None
+    typing_indicator_thread = None
+
+    try:
+        logger.info("Starting HTML Image generation")
+
+        # Start the typing indicator as this is a new thread
+        stop_typing_event, typing_indicator_thread = handle_typing_indicator(driver.client.userid, channel_id, root_id)
+
+        image_data = uc.loop().run_until_complete(raw_html_to_image(raw_html_code, url))
+
+        file_id = driver.files.upload_file(
+            channel_id=channel_id,
+            files={"files": ("image.png", image_data)},
+        )[
+            "file_infos"
+        ][0]["id"]
+
+        # Send the response back to the Mattermost channel as a reply to the thread or as a new thread
+        driver.posts.create_post(
+            {
+                "channel_id": channel_id,
+                "message": "_HTML preview:_",
+                "root_id": root_id,
+                "file_ids": [file_id],
+            }
+        )
+    except Exception as e:
+        logger.error(f"HTML Image generation error: {str(e)} {traceback.format_exc()}")
+        driver.posts.create_post(
+            {"channel_id": channel_id, "message": f"HTML Image generation error occurred: {str(e)}", "root_id": root_id}
+        )
+    finally:
+        if stop_typing_event:
+            stop_typing_event.set()
+        if typing_indicator_thread:
+            typing_indicator_thread.join()
+
+
 def handle_image_generation(prompt, is_raw, channel_id, root_id):
-    # Start the typing indicator as this is a new thread
-    stop_typing_event, typing_indicator_thread = handle_typing_indicator(driver.client.userid, channel_id, root_id)
+    stop_typing_event = None
+    typing_indicator_thread = None
 
-    if is_raw:
-        # Removing a leading '#' and any whitespace following it
-        prompt = re.sub(r"^#(\s*)", "", prompt)
-        prompt = f"I NEED to test how the tool works with extremely simple prompts. DO NOT add any detail, just use it AS-IS: {prompt}"
+    try:
+        logger.info("Querying Image generation API")
 
-    response = ai_client.images.generate(
-        model="dall-e-3",
-        prompt=prompt,
-        size=image_size,  # type: ignore
-        quality=image_quality,  # type: ignore
-        style=image_style,  # type: ignore
-        n=1,
-        response_format="b64_json",
-        timeout=timeout,
-    )
+        # Start the typing indicator as this is a new thread
+        stop_typing_event, typing_indicator_thread = handle_typing_indicator(driver.client.userid, channel_id, root_id)
 
-    # Extract the base64-encoded image data from the response
-    image_data = response.data[0].b64_json
-    revised_prompt = response.data[0].revised_prompt
+        if is_raw:
+            # Removing a leading '#' and any whitespace following it
+            prompt = re.sub(r"^#(\s*)", "", prompt)
+            prompt = f"I NEED to test how the tool works with extremely simple prompts. DO NOT add any detail, just use it AS-IS: {prompt}"
 
-    # Decode the base64-encoded image data
-    decoded_image_data = base64.b64decode(image_data)
+        response = ai_client.images.generate(
+            model="dall-e-3",
+            prompt=prompt,
+            size=image_size,  # type: ignore
+            quality=image_quality,  # type: ignore
+            style=image_style,  # type: ignore
+            n=1,
+            response_format="b64_json",
+            timeout=timeout,
+        )
 
-    file_id = driver.files.upload_file(
-        channel_id=channel_id,
-        files={"files": ("image.png", decoded_image_data)},
-    )[
-        "file_infos"
-    ][0]["id"]
+        # Extract the base64-encoded image data from the response
+        image_data = response.data[0].b64_json
+        revised_prompt = response.data[0].revised_prompt
 
-    # Send the API response back to the Mattermost channel as a reply to the thread or as a new thread
-    driver.posts.create_post(
-        {
-            "channel_id": channel_id,
-            "message": f"_{revised_prompt}_",
-            "root_id": root_id,
-            "file_ids": [file_id],
-        }
-    )
+        # Decode the base64-encoded image data
+        decoded_image_data = base64.b64decode(image_data)
 
-    if stop_typing_event:
-        stop_typing_event.set()
-    if typing_indicator_thread:
-        typing_indicator_thread.join()
+        file_id = driver.files.upload_file(
+            channel_id=channel_id,
+            files={"files": ("image.png", decoded_image_data)},
+        )[
+            "file_infos"
+        ][0]["id"]
+
+        # Send the API response back to the Mattermost channel as a reply to the thread or as a new thread
+        driver.posts.create_post(
+            {
+                "channel_id": channel_id,
+                "message": f"_{revised_prompt}_",
+                "root_id": root_id,
+                "file_ids": [file_id],
+            }
+        )
+    except Exception as e:
+        logger.error(f"Image generation error: {str(e)} {traceback.format_exc()}")
+        driver.posts.create_post(
+            {"channel_id": channel_id, "message": f"Image generation error occurred: {str(e)}", "root_id": root_id}
+        )
+    finally:
+        if stop_typing_event:
+            stop_typing_event.set()
+        if typing_indicator_thread:
+            typing_indicator_thread.join()
 
 
 def handle_text_generation(current_message, messages, channel_id, root_id):
     # Send the messages to the AI API
-    response = ai_client.chat.completions.create(
-        model=model,
-        max_tokens=max_tokens,
-        messages=[{"role": "system", "content": get_system_instructions()}, *messages],
-        timeout=timeout,
-        temperature=temperature,
-        tools=tools,
-        tool_choice="auto",  # Let model decide to call the function or not
-    )
+    if not tool_use_enabled:
+        response = ai_client.chat.completions.create(
+            model=model,
+            max_tokens=max_tokens,
+            messages=[{"role": "system", "content": get_system_instructions()}, *messages],
+            timeout=timeout,
+            temperature=temperature,
+        )
 
-    initial_message_response = response.choices[0].message
-    prompt_tokens = response.usage.prompt_tokens
-    completion_tokens = response.usage.completion_tokens
-
-    tool_messages = []
-
-    # Check if tool calls are present in the response
-    if initial_message_response.tool_calls:
-        tool_calls = initial_message_response.tool_calls
-        prompt_is_raw = current_message.startswith("#")
-        for index, call in enumerate(tool_calls):
-            if index >= 15:
-                raise Exception("Maximum amount of function calls reached")
-
-            if call.function.name == "get_stock_ticker_data":
-                data = wrapper_function_call(get_stock_ticker_data, call.function.arguments)
-                func_response = {
-                    "tool_call_id": call.id,
-                    "role": "tool",
-                    "name": call.function.name,
-                    "content": str(data),
-                }
-
-                tool_messages.append(func_response)
-            elif call.function.name == "get_cryptocurrency_data_by_market_cap":
-                data = wrapper_function_call(get_cryptocurrency_data_by_market_cap, call.function.arguments)
-                func_response = {
-                    "tool_call_id": call.id,
-                    "role": "tool",
-                    "name": call.function.name,
-                    "content": str(data),
-                }
-
-                tool_messages.append(func_response)
-            elif call.function.name == "get_cryptocurrency_data_by_id":
-                data = wrapper_function_call(get_cryptocurrency_data_by_id, call.function.arguments)
-                func_response = {
-                    "tool_call_id": call.id,
-                    "role": "tool",
-                    "name": call.function.name,
-                    "content": str(data),
-                }
-
-                tool_messages.append(func_response)
-            elif call.function.name == "get_exchange_rates":
-                data = wrapper_function_call(get_exchange_rates, call.function.arguments)
-                func_response = {
-                    "tool_call_id": call.id,
-                    "role": "tool",
-                    "name": call.function.name,
-                    "content": str(data),
-                }
-
-                tool_messages.append(func_response)
-            elif call.function.name == "generate_image":
-                arguments = json.loads(call.function.arguments)
-                image_prompt = arguments["prompt"]
-                thread_pool.submit(
-                    handle_image_generation,
-                    current_message if prompt_is_raw else image_prompt,
-                    prompt_is_raw,
-                    channel_id,
-                    root_id,
-                )
-            else:
-                func_response = {
-                    "tool_call_id": call.id,
-                    "role": "tool",
-                    "name": call.function.name,
-                    "content": "You hallucinated this function call, it does not exist",
-                }
-
-                tool_messages.append(func_response)
-
-        # If all tool calls were image generation, we do not need to continue here. Refactor this sometime
-        image_gen_calls_only = all(call.function.name == "generate_image" for call in tool_calls)
-        if image_gen_calls_only:
-            return
-
-        # Remove all generate_image tool calls from the message for API compliance, as we handle images differently
-        response.choices[0].message.tool_calls = [call for call in tool_calls if call.function.name != "generate_image"]
-
-    # Requery in case there are new messages from function calls
-    if tool_messages:
-        # Add the initial response to the messages array as it contains infos about tool calls
-        messages.append(initial_message_response)
-
-        messages.extend(tool_messages)
-
+        prompt_tokens = response.usage.prompt_tokens
+        completion_tokens = response.usage.completion_tokens
+    else:
         response = ai_client.chat.completions.create(
             model=model,
             max_tokens=max_tokens,
@@ -529,11 +519,126 @@ def handle_text_generation(current_message, messages, channel_id, root_id):
             timeout=timeout,
             temperature=temperature,
             tools=tools,
-            tool_choice="none",
+            tool_choice="auto",  # Let model decide to call the function or not
         )
 
-        prompt_tokens += response.usage.prompt_tokens
-        completion_tokens += response.usage.completion_tokens
+        initial_message_response = response.choices[0].message
+        prompt_tokens = response.usage.prompt_tokens
+        completion_tokens = response.usage.completion_tokens
+
+        tool_messages = []
+
+        # Check if tool calls are present in the response
+        if initial_message_response.tool_calls:
+            tool_calls = initial_message_response.tool_calls
+            prompt_is_raw = current_message.startswith("#")
+            for index, call in enumerate(tool_calls):
+                if index >= 15:
+                    raise Exception("Maximum amount of function calls reached")
+
+                if call.function.name == "get_stock_ticker_data":
+                    data = wrapper_function_call(get_stock_ticker_data, call.function.arguments)
+                    func_response = {
+                        "tool_call_id": call.id,
+                        "role": "tool",
+                        "name": call.function.name,
+                        "content": str(data),
+                    }
+
+                    tool_messages.append(func_response)
+                elif call.function.name == "get_cryptocurrency_data_by_market_cap":
+                    data = wrapper_function_call(get_cryptocurrency_data_by_market_cap, call.function.arguments)
+                    func_response = {
+                        "tool_call_id": call.id,
+                        "role": "tool",
+                        "name": call.function.name,
+                        "content": str(data),
+                    }
+
+                    tool_messages.append(func_response)
+                elif call.function.name == "get_cryptocurrency_data_by_id":
+                    data = wrapper_function_call(get_cryptocurrency_data_by_id, call.function.arguments)
+                    func_response = {
+                        "tool_call_id": call.id,
+                        "role": "tool",
+                        "name": call.function.name,
+                        "content": str(data),
+                    }
+
+                    tool_messages.append(func_response)
+                elif call.function.name == "get_exchange_rates":
+                    data = wrapper_function_call(get_exchange_rates, call.function.arguments)
+                    func_response = {
+                        "tool_call_id": call.id,
+                        "role": "tool",
+                        "name": call.function.name,
+                        "content": str(data),
+                    }
+
+                    tool_messages.append(func_response)
+                elif call.function.name == "generate_image":
+                    arguments = json.loads(call.function.arguments)
+                    image_prompt = arguments["prompt"]
+                    thread_pool.submit(
+                        handle_image_generation,
+                        current_message if prompt_is_raw else image_prompt,
+                        prompt_is_raw,
+                        channel_id,
+                        root_id,
+                    )
+                elif call.function.name == "raw_html_to_image":
+                    arguments = json.loads(call.function.arguments)
+                    raw_html_code = arguments["raw_html_code"] if "raw_html_code" in arguments else None
+                    url = arguments["url"] if "url" in arguments else None
+
+                    thread_pool.submit(
+                        handle_html_image_generation,
+                        raw_html_code,
+                        url,
+                        channel_id,
+                        root_id,
+                    )
+                else:
+                    func_response = {
+                        "tool_call_id": call.id,
+                        "role": "tool",
+                        "name": call.function.name,
+                        "content": "You hallucinated this function call, it does not exist",
+                    }
+
+                    tool_messages.append(func_response)
+
+            # If all tool calls were image generation, we do not need to continue here. Refactor this sometime
+            image_gen_calls_only = all(
+                call.function.name in ("generate_image", "raw_html_to_image") for call in tool_calls
+            )
+            if image_gen_calls_only:
+                return
+
+            # Remove all generate_image tool calls from the message for API compliance, as we handle images differently
+            response.choices[0].message.tool_calls = [
+                call for call in tool_calls if call.function.name not in ("generate_image", "raw_html_to_image")
+            ]
+
+        # Requery in case there are new messages from function calls
+        if tool_messages:
+            # Add the initial response to the messages array as it contains infos about tool calls
+            messages.append(initial_message_response)
+
+            messages.extend(tool_messages)
+
+            response = ai_client.chat.completions.create(
+                model=model,
+                max_tokens=max_tokens,
+                messages=[{"role": "system", "content": get_system_instructions()}, *messages],
+                timeout=timeout,
+                temperature=temperature,
+                tools=tools,
+                tool_choice="none",
+            )
+
+            prompt_tokens += response.usage.prompt_tokens
+            completion_tokens += response.usage.completion_tokens
 
     response_text = response.choices[0].message.content
 
@@ -561,8 +666,9 @@ def handle_generation(current_message, messages, channel_id, root_id):
         logger.info("Querying AI API")
         handle_text_generation(current_message, messages, channel_id, root_id)
     except Exception as e:
-        logger.error(f"Error: {str(e)} {traceback.format_exc()}")
-        driver.posts.create_post({"channel_id": channel_id, "message": f"Error occurred: {str(e)}", "root_id": root_id})
+        logger.error(f"Text generation error: {str(e)} {traceback.format_exc()}")
+        driver.posts.create_post(
+            {"channel_id": channel_id, "message": f"Text generation error occurred: {str(e)}", "root_id": root_id})
 
 
 def wrapper_function_call(func, call_input_arguments, *args, **kwargs):
@@ -594,6 +700,34 @@ def get_stock_ticker_data(arguments):
     }
 
     return stock_data
+
+
+@timed_lru_cache(seconds=120, maxsize=10)
+async def raw_html_to_image(raw_html, url):
+    browser = await uc.start(
+        browser_executable_path=browser_executable_path, headless=True, browser_args=["--window-size=1920,1080"]
+    )
+
+    if raw_html:
+        encoded_html = base64.b64encode(raw_html.encode("utf-8")).decode("utf-8")
+        url = f"data:text/html;base64,{encoded_html}"
+
+    page = await browser.get(url)
+    await page  # wait for events to be processed
+
+    with tempfile.NamedTemporaryFile(delete=False, delete_on_close=False, suffix=".png") as temp_file:
+        temp_screen_path = temp_file.name
+
+    try:
+        await page.save_screenshot(filename=temp_screen_path, format="png", full_page=True)
+        await page.close()
+        with open(temp_screen_path, "rb") as file:
+            file_bytes = file.read()
+    finally:
+        os.remove(temp_screen_path)
+        browser.stop()
+
+    return file_bytes
 
 
 @timed_lru_cache(seconds=7200, maxsize=100)
@@ -752,9 +886,9 @@ def process_message(event_data):
 
                 if image_messages:
                     image_messages.append({"type": "text", "text": content})
-                    messages.append({"name": thread_sender_name, "role": "user", "content": image_messages})
+                    messages.append({"name": thread_sender_name, "role": thread_role, "content": image_messages})
                 else:
-                    messages.append(construct_text_message(thread_sender_name, "user", content))
+                    messages.append(construct_text_message(thread_sender_name, thread_role, content))
 
             # If the message is not part of a thread, reply to it to create a new thread
             handle_generation(current_message, messages, channel_id, post_id if not root_id else root_id)
@@ -1241,6 +1375,13 @@ def process_image(image_data):
 
 def main():
     try:
+        if not os.path.exists(browser_executable_path):
+            logger.error(
+                "Chromium binary not found, removing raw_html_to_image function from tools. This is nothing to worry about if you don't use it."
+            )
+            global tools
+            tools = [tool for tool in tools if tool["function"]["name"] != "raw_html_to_image"]
+
         # Log in to the Mattermost server
         driver.login()
         global CHATBOT_USERNAME, CHATBOT_USERNAME_AT

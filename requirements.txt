@@ -11,3 +11,4 @@ defusedxml>=0.7.1
 yfinance>=0.2.38
 pymupdf4llm>=0.0.3
 tiktoken>=0.7.0
+nodriver>=0.29rc2
