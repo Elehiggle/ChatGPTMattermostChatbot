@@ -718,6 +718,7 @@ async def raw_html_to_image(raw_html, url):
 
     page = await browser.get(url)
     await page  # wait for events to be processed
+    await browser.wait(3)  # wait some time for some more elements
 
     with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as temp_file:
         temp_screen_path = temp_file.name
