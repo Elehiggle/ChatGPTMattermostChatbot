@@ -887,6 +887,7 @@ def process_message(event_data):
                 if not content["website_data"]:
                     del content["website_data"]
 
+                # We use str() and not JSON.dumps() to avoid the AI replying in (partially) escaped JSON format
                 content = f"{str(content)}{thread_message_text}" if content else thread_message_text
 
                 if image_messages:
@@ -1380,9 +1381,9 @@ def process_image(image_data):
 
 def main():
     try:
-        if not os.path.exists(browser_executable_path):
+        if not os.path.exists(browser_executable_path) or not os.access(browser_executable_path, os.X_OK):
             logger.error(
-                "Chromium binary not found, removing raw_html_to_image function from tools. This is nothing to worry about if you don't use it."
+                "Chromium binary not found or not executable, removing raw_html_to_image function from tools. This is nothing to worry about if you don't use it."
             )
             global tools
             tools = [tool for tool in tools if tool["function"]["name"] != "raw_html_to_image"]
