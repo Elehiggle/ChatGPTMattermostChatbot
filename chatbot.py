@@ -588,8 +588,8 @@ def handle_text_generation(current_message, messages, channel_id, root_id):
                     )
                 elif call.function.name == "raw_html_to_image":
                     arguments = json.loads(call.function.arguments)
-                    raw_html_code = arguments["raw_html_code"] if "raw_html_code" in arguments else None
-                    url = arguments["url"] if "url" in arguments else None
+                    raw_html_code = arguments.get("raw_html_code", None)
+                    url = arguments.get("url", None)
 
                     thread_pool.submit(
                         handle_html_image_generation,
@@ -644,6 +644,10 @@ def handle_text_generation(current_message, messages, channel_id, root_id):
 
     if response_text is None:
         raise Exception("Empty AI response, likely API error or mishandling")
+
+    if response.choices[0].finish_reason == "content_filter":
+        logger.debug("Response censored, finish reason: content_filter")
+        response_text += "\n**Response censored, finish reason: content_filter**"
 
     # Split the response into multiple messages if necessary
     response_parts = split_message(response_text)
@@ -767,7 +771,7 @@ def get_exchange_rates(_arguments):
 @timed_lru_cache(seconds=180, maxsize=100)
 def get_cryptocurrency_data_by_market_cap(arguments):
     arguments = json.loads(arguments)
-    num_currencies = arguments["num_currencies"] if "num_currencies" in arguments else 15
+    num_currencies = arguments.get("num_currencies", 15)
     num_currencies = min(num_currencies, 20)  # Limit to 20
 
     url = "https://api.coingecko.com/api/v3/coins/markets"  # possible alternatives: coincap.io, mobula.io
@@ -991,8 +995,9 @@ def get_thread_posts(root_id, post_id):
 
 
 def is_chatbot_invoked(post, post_id, root_id, channel_display_name):
-    # We directly access the message here as we filter the mention earlier
-    if CHATBOT_USERNAME_AT in post["message"]:
+    # We directly access the raw message here as we filter the mention earlier
+    last_message = post["message"]
+    if CHATBOT_USERNAME_AT in last_message:
         return True
 
     # It is a direct message
@@ -1002,6 +1007,27 @@ def is_chatbot_invoked(post, post_id, root_id, channel_display_name):
     if root_id:
         thread = get_raw_thread_posts(root_id, post_id)
 
+        # Check if the last post in the thread starts with a mention of ANY other bot than the chatbot
+        # If so, ignore it, as it is likely a mention for another bot
+        if thread:
+            match = re.match(r"@(\w+)", last_message)
+
+            if match:
+                mentioned_username = match.group(1)
+
+                try:
+                    mentioned_user = driver.users.get_user_by_username(mentioned_username)
+                    mentioned_user_id = mentioned_user["id"]
+
+                    if mentioned_user_id != driver.client.userid and mentioned_user.get("is_bot", False):
+                        logger.debug(
+                            "Ignoring post and not checking further if we have been invoked as it is a mention for another bot"
+                        )
+                        return False
+                except Exception as e:
+                    logger.debug(f"Could not get user {mentioned_username}: {str(e)}")
+
+        # Check if we have been mentioned in the past or if the chatbot had already replied
         for thread_post in thread["posts"].values():
             if thread_post["user_id"] == driver.client.userid:
                 return True
@@ -1067,9 +1093,9 @@ def get_files_content(post):
     image_messages = []
 
     try:
-        if "metadata" in post and post["metadata"]:
+        if post.get("metadata"):
             metadata = post["metadata"]
-            if "files" in metadata and metadata["files"]:
+            if metadata.get("files"):
                 metadata_files = metadata["files"]
 
                 for file_details in metadata_files:
