@@ -10,6 +10,7 @@ import logging
 import concurrent.futures
 import base64
 import tempfile
+import asyncio
 from time import monotonic_ns
 from functools import lru_cache, wraps
 from io import BytesIO
@@ -70,7 +71,7 @@ def timed_lru_cache(_func=None, *, seconds: int = 600, maxsize: int = 128, typed
 
     def wrapper_cache(f):
         f = lru_cache(maxsize=maxsize, typed=typed)(f)
-        f.delta = seconds * 10 ** 9
+        f.delta = seconds * 10 ** 9  # fmt: skip
         f.expiration = monotonic_ns() + f.delta
 
         @wraps(f)
@@ -157,7 +158,7 @@ tools = [
         "type": "function",
         "function": {
             "name": "get_cryptocurrency_data_by_id",
-            "description": "Fetches cryptocurrency data by ID (ex. ethereum) or symbol (ex. BTC)",
+            "description": "Fetches cryptocurrency data by ID (ex. ethereum) or symbol (ex. BTC), prices in USD",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -171,7 +172,7 @@ tools = [
         "type": "function",
         "function": {
             "name": "get_cryptocurrency_data_by_market_cap",
-            "description": "Fetches cryptocurrency data for the top N currencies by market cap",
+            "description": "Fetches cryptocurrency data for the top N currencies by market cap, prices in USD",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -407,8 +408,7 @@ def handle_html_image_generation(raw_html_code, url, channel_id, root_id):
         # Start the typing indicator as this is a new thread
         stop_typing_event, typing_indicator_thread = handle_typing_indicator(driver.client.userid, channel_id, root_id)
 
-        image_data = uc.loop().run_until_complete(raw_html_to_image(raw_html_code, url))
-
+        image_data = uc.loop().run_until_complete(asyncio.wait_for(raw_html_to_image(raw_html_code, url), 30))
         file_id = driver.files.upload_file(
             channel_id=channel_id,
             files={"files": ("image.png", image_data)},
@@ -668,7 +668,8 @@ def handle_generation(current_message, messages, channel_id, root_id):
     except Exception as e:
         logger.error(f"Text generation error: {str(e)} {traceback.format_exc()}")
         driver.posts.create_post(
-            {"channel_id": channel_id, "message": f"Text generation error occurred: {str(e)}", "root_id": root_id})
+            {"channel_id": channel_id, "message": f"Text generation error occurred: {str(e)}", "root_id": root_id}
+        )
 
 
 def wrapper_function_call(func, call_input_arguments, *args, **kwargs):
@@ -707,29 +708,35 @@ async def raw_html_to_image(raw_html, url):
         browser_executable_path=browser_executable_path, headless=True, browser_args=["--window-size=1920,1080"]
     )
 
-    if raw_html:
-        encoded_html = base64.b64encode(raw_html.encode("utf-8")).decode("utf-8")
-        url = f"data:text/html;base64,{encoded_html}"
-
-    if url:
-        if re.search(REGEX_LOCAL_LINKS, url):
-            logger.info(f"Skipping local URL for screenshotting: {url}")
-            raise Exception("Local URLs are not allowed for screenshotting")
-
-    page = await browser.get(url)
-    await page  # wait for events to be processed
-    await browser.wait(3)  # wait some time for some more elements
-
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as temp_file:
-        temp_screen_path = temp_file.name
-
     try:
-        await page.save_screenshot(filename=temp_screen_path, format="png", full_page=True)
-        await page.close()
-        with open(temp_screen_path, "rb") as file:
-            file_bytes = file.read()
+        final_url = None
+
+        if raw_html:
+            encoded_html = base64.b64encode(raw_html.encode("utf-8")).decode("utf-8")
+            final_url = f"data:text/html;base64,{encoded_html}"
+        elif url:
+            if re.search(REGEX_LOCAL_LINKS, url):
+                raise Exception(f"Local URLs are not allowed for screenshotting {url}")
+            final_url = url
+
+        if not final_url:
+            raise Exception("No URL or raw HTML provided")
+
+        page = await browser.get(final_url)
+        await page  # wait for events to be processed
+        await browser.wait(3)  # wait some time for more elements
+
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as temp_file:
+            temp_screen_path = temp_file.name
+
+        try:
+            await page.save_screenshot(filename=temp_screen_path, format="png", full_page=True)
+            await page.close()
+            with open(temp_screen_path, "rb") as file:
+                file_bytes = file.read()
+        finally:
+            os.remove(temp_screen_path)
     finally:
-        os.remove(temp_screen_path)
         browser.stop()
 
     return file_bytes
