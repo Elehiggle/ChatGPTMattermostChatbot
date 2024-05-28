@@ -853,38 +853,36 @@ def process_message(event_data):
 
                 thread_post, thread_sender_name, thread_role, thread_message_text = thread_message
 
-                # We don't want to extract information from links the assistant sent
-                if thread_role == "assistant":
-                    messages.append(construct_text_message(thread_sender_name, thread_role, thread_message_text))
-                    continue
-
-                # If keep content is disabled, we will skip the remaining code to grab content unless its the last message
-                is_last_message = index == len(thread_messages) - 1
-                if not keep_all_url_content and not is_last_message:
-                    messages.append(construct_text_message(thread_sender_name, thread_role, thread_message_text))
-                    continue
+                image_messages = []
 
                 links = re.findall(r"(https?://\S+)", thread_message_text, re.IGNORECASE)  # Allow http and https links
                 content["website_data"] = []
-                image_messages = []
 
-                for link in links:
-                    if re.search(REGEX_LOCAL_LINKS, link):
-                        logger.info(f"Skipping local URL: {link}")
-                        continue
+                # We don't want grab URL content from links the assistant sent
+                # If keep URL content is disabled, we will skip the URL content code unless its the last message
+                is_last_message = index == len(thread_messages) - 1
+                if thread_role == "user" and keep_all_url_content or is_last_message:
+                    for link in links:
+                        if re.search(REGEX_LOCAL_LINKS, link):
+                            logger.info(f"Skipping local URL: {link}")
+                            continue
 
-                    website_data = {
-                        "url": link,
-                    }
+                        website_data = {
+                            "url": link,
+                        }
 
-                    try:
-                        website_data["url_content"], link_image_messages = request_link_content(link)
-                        image_messages.extend(link_image_messages)
-                    except Exception as e:
-                        logger.error(f"Error extracting content from link {link}: {str(e)} {traceback.format_exc()}")
-                        website_data["error"] = f"fetching website caused an exception, warn the chatbot user: {str(e)}"
-                    finally:
-                        content["website_data"].append(website_data)
+                        try:
+                            website_data["url_content"], link_image_messages = request_link_content(link)
+                            image_messages.extend(link_image_messages)
+                        except Exception as e:
+                            logger.error(
+                                f"Error extracting content from link {link}: {str(e)} {traceback.format_exc()}"
+                            )
+                            website_data["error"] = (
+                                f"fetching website caused an exception, warn the chatbot user: {str(e)}"
+                            )
+                        finally:
+                            content["website_data"].append(website_data)
 
                 files_text_content, files_image_messages = get_files_content(thread_post)
                 image_messages.extend(files_image_messages)
@@ -899,7 +897,8 @@ def process_message(event_data):
 
                 if image_messages:
                     image_messages.append({"type": "text", "text": content})
-                    messages.append({"name": thread_sender_name, "role": thread_role, "content": image_messages})
+                    # We force a user role here, as this is an API requirement for images in GPT-4o
+                    messages.append({"name": thread_sender_name, "role": "user", "content": image_messages})
                 else:
                     messages.append(construct_text_message(thread_sender_name, thread_role, content))
 
