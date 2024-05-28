@@ -102,7 +102,7 @@ temperature = float(os.getenv("TEMPERATURE", "1"))
 system_prompt_unformatted = os.getenv(
     "AI_SYSTEM_PROMPT",
     """
-You are a helpful assistant used in a Mattermost chat. The current UTC time is {current_time}. The user's name is sent to you in the "name" parameter. 
+You are a helpful assistant used in a Mattermost chat. The current UTC time is {current_time}. The user's name is sent to you in the name parameter. 
 Whenever users asks you for help you will provide them with succinct answers formatted using Markdown. Do not unnecessarily greet people with their name, 
 do not be apologetic. 
 For tasks requiring reasoning or math, use the Chain-of-Thought methodology to explain your step-by-step calculations or logic before presenting your answer. 
@@ -742,7 +742,7 @@ async def raw_html_to_image(raw_html, url):
         finally:
             os.remove(temp_screen_path)
     finally:
-        browser.stop()
+        browser.stop()  # uc.util.deconstruct_browser() but may affect other instances running at the same time?
 
     return file_bytes
 
