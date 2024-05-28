@@ -128,7 +128,7 @@ tools = [
                     },
                     "url": {
                         "type": "string",
-                        "description": "URL to be opened on a browser and taken a screenshot of. Only one parameter is allowed",
+                        "description": "Valid URL (with http/https in front) to be opened on a browser and taken a screenshot of. Only one parameter is allowed",
                     },
                 },
             },
@@ -531,11 +531,12 @@ def handle_text_generation(current_message, messages, channel_id, root_id):
         # Check if tool calls are present in the response
         if initial_message_response.tool_calls:
             tool_calls = initial_message_response.tool_calls
-            prompt_is_raw = current_message.startswith("#")
-            for index, call in enumerate(tool_calls):
-                if index >= 15:
-                    raise Exception("Maximum amount of function calls reached")
 
+            if len(tool_calls) > 15:
+                raise Exception("Too many function calls in the message, maximum is 15")
+
+            prompt_is_raw = current_message.startswith("#")
+            for call in tool_calls:
                 if call.function.name == "get_stock_ticker_data":
                     data = wrapper_function_call(get_stock_ticker_data, call.function.arguments)
                     func_response = {
@@ -615,30 +616,30 @@ def handle_text_generation(current_message, messages, channel_id, root_id):
             if image_gen_calls_only:
                 return
 
-            # Remove all generate_image tool calls from the message for API compliance, as we handle images differently
-            response.choices[0].message.tool_calls = [
+            # Remove all image generation tool calls from the message for API compliance, as we handle images differently
+            initial_message_response.tool_calls = [
                 call for call in tool_calls if call.function.name not in ("generate_image", "raw_html_to_image")
             ]
 
-        # Requery in case there are new messages from function calls
-        if tool_messages:
-            # Add the initial response to the messages array as it contains infos about tool calls
-            messages.append(initial_message_response)
+            # Requery in case there are new messages from function calls
+            if tool_messages:
+                # Add the initial response to the messages array as it contains infos about tool calls
+                messages.append(initial_message_response)
 
-            messages.extend(tool_messages)
+                messages.extend(tool_messages)
 
-            response = ai_client.chat.completions.create(
-                model=model,
-                max_tokens=max_tokens,
-                messages=[{"role": "system", "content": get_system_instructions()}, *messages],
-                timeout=timeout,
-                temperature=temperature,
-                tools=tools,
-                tool_choice="none",
-            )
+                response = ai_client.chat.completions.create(
+                    model=model,
+                    max_tokens=max_tokens,
+                    messages=[{"role": "system", "content": get_system_instructions()}, *messages],
+                    timeout=timeout,
+                    temperature=temperature,
+                    tools=tools,
+                    tool_choice="none",
+                )
 
-            prompt_tokens += response.usage.prompt_tokens
-            completion_tokens += response.usage.completion_tokens
+                prompt_tokens += response.usage.prompt_tokens
+                completion_tokens += response.usage.completion_tokens
 
     response_text = response.choices[0].message.content
 
@@ -901,7 +902,7 @@ def process_message(event_data):
 
                 if image_messages:
                     image_messages.append({"type": "text", "text": content})
-                    # We force a user role here, as this is an API requirement for images in GPT-4o
+                    # We force a user role here, as this is an API requirement for images for GPT-4o
                     messages.append({"name": thread_sender_name, "role": "user", "content": image_messages})
                 else:
                     messages.append(construct_text_message(thread_sender_name, thread_role, content))
