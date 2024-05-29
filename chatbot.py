@@ -272,6 +272,12 @@ compatible_image_content_types = [
     "image/webp",
 ]
 
+mattermost_max_image_dimensions = (
+    7680,
+    4320,
+)  # https://docs.mattermost.com/collaborate/share-files-in-messages.html#attachment-limits-and-sizes
+ai_model_max_vision_image_dimensions = (2000, 768)  # https://platform.openai.com/docs/guides/vision/managing-images
+
 
 def get_system_instructions():
     current_time = datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
@@ -467,8 +473,8 @@ def handle_image_generation(prompt, is_raw, channel_id, root_id):
         image_data = response.data[0].b64_json
         revised_prompt = response.data[0].revised_prompt
 
-        # Decode the base64-encoded image data
-        decoded_image_data = base64.b64decode(image_data)
+        # Decode the base64-encoded image data, resize and compress if necessary
+        decoded_image_data = resize_image_data(base64.b64decode(image_data), mattermost_max_image_dimensions, 10)
 
         file_id = driver.files.upload_file(
             channel_id=channel_id,
@@ -744,7 +750,7 @@ async def raw_html_to_image(raw_html, url):
     finally:
         browser.stop()  # uc.util.deconstruct_browser() but may affect other instances running at the same time?
 
-    return file_bytes
+    return resize_image_data(file_bytes, mattermost_max_image_dimensions, 10)
 
 
 @timed_lru_cache(seconds=7200, maxsize=100)
@@ -1055,7 +1061,10 @@ def get_file_content(file_details_json):
     if content_type.startswith("image/"):
         if content_type not in compatible_image_content_types:
             raise Exception(f"Unsupported image content type: {content_type}")
-        image_data_base64 = process_image(file.content)
+        image_data_base64 = base64.b64encode(
+            resize_image_data(file.content, ai_model_max_vision_image_dimensions, 3)
+        ).decode("utf-8")
+
         image_messages.append(construct_image_content_message(content_type, image_data_base64))
         return "", image_messages
 
@@ -1082,8 +1091,9 @@ def extract_pdf_content(stream):
                 pdf_image_content_type = f"image/{pdf_image_extension}"
                 if pdf_image_content_type not in compatible_image_content_types:
                     continue
-                pdf_image_data_base64 = process_image(pdf_base_image["image"])
-
+                pdf_image_data_base64 = base64.b64encode(
+                    resize_image_data(pdf_base_image["image"], ai_model_max_vision_image_dimensions, 3)
+                ).decode("utf-8")
                 image_messages.append(construct_image_content_message(pdf_image_content_type, pdf_image_data_base64))
 
     return pdf_text_content, image_messages
@@ -1303,7 +1313,9 @@ def request_link_image_content(prev_response, content_type):
         if total_size > max_response_size:
             raise Exception("Image size from the website exceeded the maximum limit for the chatbot")
 
-    image_data_base64 = process_image(image_data)
+    image_data_base64 = base64.b64encode(resize_image_data(image_data, ai_model_max_vision_image_dimensions, 3)).decode(
+        "utf-8"
+    )
     return [construct_image_content_message(content_type, image_data_base64)]
 
 
@@ -1344,72 +1356,50 @@ def request_link_pdf_content(prev_response):
     return extract_pdf_content(pdf_data)
 
 
-def process_image(image_data):
-    # Open the image using Pillow
-    image = Image.open(BytesIO(image_data))
-
-    # Calculate the aspect ratio of the image
-    width, height = image.size
-    aspect_ratio = width / height
-
-    # Define the supported aspect ratios and their corresponding dimensions
-    supported_ratios = [
-        (1, 1, 1092, 1092),
-        (0.75, 3 / 4, 951, 1268),
-        (0.67, 2 / 3, 896, 1344),
-        (0.56, 9 / 16, 819, 1456),
-        (0.5, 1 / 2, 784, 1568),
-    ]
-
-    # Find the closest supported aspect ratio
-    # pylint: disable=cell-var-from-loop
-    closest_ratio = min(
-        supported_ratios,
-        key=lambda x: abs(x[0] - aspect_ratio),
-    )
-    # Determine the target dimensions based on the image orientation
-    if width >= height:
-        # Landscape orientation
-        target_width, target_height = (
-            closest_ratio[2],
-            closest_ratio[3],
-        )
-    else:
-        # Portrait orientation
-        target_width, target_height = (
-            closest_ratio[3],
-            closest_ratio[2],
-        )
-
-    # Resize the image to the target dimensions
-    resized_image = image.resize(
-        (target_width, target_height),
-        Image.Resampling.LANCZOS,
-    )
-
-    # Save the resized image to a BytesIO object
+def compress_image(image, max_size_mb):
     buffer = BytesIO()
-    resized_image.save(buffer, format=image.format, optimize=True)
-    resized_image_data = buffer.getvalue()
+    image.save(buffer, format=image.format, optimize=True)
+    return compress_image_data(buffer.getvalue(), max_size_mb)
 
-    # Check if the resized image size exceeds 3MB
+
+def compress_image_data(image_data, max_size_mb):
+    max_size = max_size_mb * 1024 * 1024
+    buffer = BytesIO(image_data)
+    image = Image.open(buffer)
+
     quality = 90
-    while len(resized_image_data) > 3 * 1024 * 1024:
+
+    # Compress the image until the size is within the target
+    while len(image_data) > max_size:
         if quality <= 0:
             raise Exception("Image too large, can't compress any further")
 
-        # Reduce the image quality until the size is within the target
         buffer = BytesIO()
-        resized_image.save(
+        image.save(
             buffer,
             format=image.format,
             optimize=True,
             quality=quality,
         )
-        resized_image_data = buffer.getvalue()
+        image_data = buffer.getvalue()
         quality -= 5
 
-    return base64.b64encode(resized_image_data).decode("utf-8")
+    return image_data
+
+
+def resize_image_data(image_data, max_dimensions, max_size_mb):
+    image = Image.open(BytesIO(image_data))
+
+    max_dimension_1, max_dimension_2 = max_dimensions
+
+    width = max(max_dimension_1, max_dimension_2)
+    height = min(max_dimension_1, max_dimension_2)
+
+    image.thumbnail((width, height) if image.width > image.height else (height, width), Image.Resampling.LANCZOS)
+
+    compressed_image_data = compress_image(image, max_size_mb)
+
+    return compressed_image_data
 
 
 def main():
@@ -1429,7 +1419,6 @@ def main():
 
         logger.debug(f"SYSTEM PROMPT: {get_system_instructions()}")
 
-        # Initialize the WebSocket connection
         while True:
             try:
                 # Initialize the WebSocket connection
