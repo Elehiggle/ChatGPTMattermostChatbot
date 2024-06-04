@@ -17,9 +17,7 @@ from io import BytesIO
 from defusedxml import ElementTree
 import yfinance
 import certifi
-
-# noinspection PyPackageRequirements
-import fitz
+import pymupdf
 import pymupdf4llm
 import httpx
 from PIL import Image
@@ -118,7 +116,7 @@ tools = [
         "type": "function",
         "function": {
             "name": "raw_html_to_image",
-            "description": "Generates an image from raw HTML code. You can also pass a URL which will be screenshotted, but only do that if its specifically requested.",
+            "description": "Generates an image from raw HTML code. You can also pass a URL which will be screenshotted, but only do that if a screenshot is specifically requested.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -412,6 +410,7 @@ def split_message(msg, max_length=4000):
     return chunks
 
 
+# maybe use general handle generation function that does typing stuff etc so we can save some code
 def handle_html_image_generation(raw_html_code, url, channel_id, root_id):
     stop_typing_event = None
     typing_indicator_thread = None
@@ -957,7 +956,7 @@ def extract_post_data(post, event_data):
 
 
 def construct_text_message(name, role, message):
-    message = {
+    return {
         "name": name,
         "role": role,
         "content": [
@@ -968,16 +967,12 @@ def construct_text_message(name, role, message):
         ],
     }
 
-    return message
-
 
 def construct_image_content_message(content_type, image_data_base64):
-    message = {
+    return {
         "type": "image_url",
         "image_url": {"url": f"data:{content_type};base64,{image_data_base64}"},
     }
-
-    return message
 
 
 # We pass post_id here so cache contains results for the most recent message
@@ -1081,7 +1076,7 @@ def extract_pdf_content(stream):
     pdf_text_content = ""
     image_messages = []
 
-    with fitz.open(None, stream, "pdf") as pdf:
+    with pymupdf.open(None, stream, "pdf") as pdf:
         pdf_text_content += pymupdf4llm.to_markdown(pdf).strip()
 
         for page in pdf:
@@ -1096,6 +1091,7 @@ def extract_pdf_content(stream):
                 pdf_image_data_base64 = base64.b64encode(
                     resize_image_data(pdf_base_image["image"], ai_model_max_vision_image_dimensions, 3)
                 ).decode("utf-8")
+
                 image_messages.append(construct_image_content_message(pdf_image_content_type, pdf_image_data_base64))
 
     return pdf_text_content, image_messages
