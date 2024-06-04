@@ -27,7 +27,7 @@ from mattermostdriver.driver import Driver
 from bs4 import BeautifulSoup
 from youtube_transcript_api import YouTubeTranscriptApi
 from yt_dlp import YoutubeDL
-from openai import OpenAI
+from openai import OpenAI, NOT_GIVEN
 import tiktoken
 import nodriver as uc
 
@@ -221,6 +221,8 @@ mattermost_username = os.getenv("MATTERMOST_USERNAME", "")
 mattermost_password = os.getenv("MATTERMOST_PASSWORD", "")
 mattermost_mfa_token = os.getenv("MATTERMOST_MFA_TOKEN", "")
 
+typing_indicator_mode_is_full = os.getenv("TYPING_INDICATOR_MODE", "FULL") == "FULL"
+
 flaresolverr_endpoint = os.getenv("FLARESOLVERR_ENDPOINT", "")
 
 browser_executable_path = os.getenv("BROWSER_EXECUTABLE_PATH", "/usr/bin/chromium")
@@ -307,16 +309,22 @@ def send_typing_indicator_loop(user_id, channel_id, parent_id, stop_event):
     """Send a "typing" indicator to show that work is in progress."""
     while not stop_event.is_set():
         try:
-            options = {
-                "channel_id": channel_id,
-                # "parent_id": parent_id  # somehow bugged/doesnt work
-            }
-            driver.client.make_request(
-                "post", f"/users/{user_id}/typing", options=options
-            )  # id may be substituted with "me"
+            # If full mode is active and we have a parent_id, also send an indicator to the main channel
+            # We send this first because I prefer it and there is a slight lag for the second indicator
+            if typing_indicator_mode_is_full and parent_id:
+                options = {
+                    "channel_id": channel_id,
+                }
+
+                driver.client.make_request("post", f"/users/{user_id}/typing", options=options)
+
+            options = {"channel_id": channel_id, "parent_id": parent_id}  # id may be substituted with "me"
+
+            driver.client.make_request("post", f"/users/{user_id}/typing", options=options)
+
             time.sleep(1)
         except Exception as e:
-            logger.error(f"Error sending busy indicator: {str(e)} {traceback.format_exc()}")
+            logger.error(f"Error sending typing indicator: {str(e)} {traceback.format_exc()}")
 
 
 def handle_typing_indicator(user_id, channel_id, parent_id):
@@ -504,148 +512,142 @@ def handle_image_generation(prompt, is_raw, channel_id, root_id):
             typing_indicator_thread.join()
 
 
+def process_tool_calls(tool_calls, current_message, channel_id, root_id):
+    if len(tool_calls) > 15:
+        raise Exception("Too many function calls in the message, maximum is 15")
+
+    tool_messages = []
+
+    for call in tool_calls:
+        if call.function.name == "get_stock_ticker_data":
+            data = wrapper_function_call(get_stock_ticker_data, call.function.arguments)
+            func_response = {
+                "tool_call_id": call.id,
+                "role": "tool",
+                "name": call.function.name,
+                "content": str(data),
+            }
+
+            tool_messages.append(func_response)
+        elif call.function.name == "get_cryptocurrency_data_by_market_cap":
+            data = wrapper_function_call(get_cryptocurrency_data_by_market_cap, call.function.arguments)
+            func_response = {
+                "tool_call_id": call.id,
+                "role": "tool",
+                "name": call.function.name,
+                "content": str(data),
+            }
+
+            tool_messages.append(func_response)
+        elif call.function.name == "get_cryptocurrency_data_by_id":
+            data = wrapper_function_call(get_cryptocurrency_data_by_id, call.function.arguments)
+            func_response = {
+                "tool_call_id": call.id,
+                "role": "tool",
+                "name": call.function.name,
+                "content": str(data),
+            }
+
+            tool_messages.append(func_response)
+        elif call.function.name == "get_exchange_rates":
+            data = wrapper_function_call(get_exchange_rates, call.function.arguments)
+            func_response = {
+                "tool_call_id": call.id,
+                "role": "tool",
+                "name": call.function.name,
+                "content": str(data),
+            }
+
+            tool_messages.append(func_response)
+        elif call.function.name == "generate_image":
+            arguments = json.loads(call.function.arguments)
+            prompt_is_raw = current_message.startswith("#")
+            image_prompt = arguments["prompt"]
+            thread_pool.submit(
+                handle_image_generation,
+                current_message if prompt_is_raw else image_prompt,
+                prompt_is_raw,
+                channel_id,
+                root_id,
+            )
+        elif call.function.name == "raw_html_to_image":
+            arguments = json.loads(call.function.arguments)
+            raw_html_code = arguments.get("raw_html_code", None)
+            url = arguments.get("url", None)
+
+            thread_pool.submit(
+                handle_html_image_generation,
+                raw_html_code,
+                url,
+                channel_id,
+                root_id,
+            )
+        else:
+            logger.error(f"Hallucinated function call: {call.function.name}")
+
+            func_response = {
+                "tool_call_id": call.id,
+                "role": "tool",
+                "name": call.function.name,
+                "content": "You hallucinated this function call, it does not exist",
+            }
+
+            tool_messages.append(func_response)
+
+    return tool_messages
+
+
 def handle_text_generation(current_message, messages, channel_id, root_id):
     # Send the messages to the AI API
-    if not tool_use_enabled:
-        response = ai_client.chat.completions.create(
-            model=model,
-            max_tokens=max_tokens,
-            messages=[{"role": "system", "content": get_system_instructions()}, *messages],
-            timeout=timeout,
-            temperature=temperature,
-        )
+    response = ai_client.chat.completions.create(
+        model=model,
+        max_tokens=max_tokens,
+        messages=[{"role": "system", "content": get_system_instructions()}, *messages],
+        timeout=timeout,
+        temperature=temperature,
+        tools=tools if tool_use_enabled else NOT_GIVEN,
+        tool_choice="auto" if tool_use_enabled else NOT_GIVEN,  # Let model decide to call the function or not
+    )
 
-        prompt_tokens = response.usage.prompt_tokens
-        completion_tokens = response.usage.completion_tokens
-    else:
-        response = ai_client.chat.completions.create(
-            model=model,
-            max_tokens=max_tokens,
-            messages=[{"role": "system", "content": get_system_instructions()}, *messages],
-            timeout=timeout,
-            temperature=temperature,
-            tools=tools,
-            tool_choice="auto",  # Let model decide to call the function or not
-        )
+    initial_message_response = response.choices[0].message
+    prompt_tokens = response.usage.prompt_tokens
+    completion_tokens = response.usage.completion_tokens
 
-        initial_message_response = response.choices[0].message
-        prompt_tokens = response.usage.prompt_tokens
-        completion_tokens = response.usage.completion_tokens
+    # Check if tool calls are present in the response
+    if initial_message_response.tool_calls:
+        tool_calls = initial_message_response.tool_calls
 
-        tool_messages = []
+        tool_messages = process_tool_calls(tool_calls, current_message, channel_id, root_id)
 
-        # Check if tool calls are present in the response
-        if initial_message_response.tool_calls:
-            tool_calls = initial_message_response.tool_calls
+        # If all tool calls were image generation, we do not need to continue here. Refactor this sometime
+        image_gen_calls_only = all(call.function.name in ("generate_image", "raw_html_to_image") for call in tool_calls)
+        if image_gen_calls_only:
+            return
 
-            if len(tool_calls) > 15:
-                raise Exception("Too many function calls in the message, maximum is 15")
+        # Remove all image generation tool calls from the message for API compliance, as we handle images differently
+        initial_message_response.tool_calls = [
+            call for call in tool_calls if call.function.name not in ("generate_image", "raw_html_to_image")
+        ]
 
-            prompt_is_raw = current_message.startswith("#")
-            for call in tool_calls:
-                if call.function.name == "get_stock_ticker_data":
-                    data = wrapper_function_call(get_stock_ticker_data, call.function.arguments)
-                    func_response = {
-                        "tool_call_id": call.id,
-                        "role": "tool",
-                        "name": call.function.name,
-                        "content": str(data),
-                    }
+        # Requery in case there are new messages from function calls
+        if tool_messages:
+            # Add the initial response to the messages array as it contains infos about tool calls
+            messages.append(initial_message_response)
 
-                    tool_messages.append(func_response)
-                elif call.function.name == "get_cryptocurrency_data_by_market_cap":
-                    data = wrapper_function_call(get_cryptocurrency_data_by_market_cap, call.function.arguments)
-                    func_response = {
-                        "tool_call_id": call.id,
-                        "role": "tool",
-                        "name": call.function.name,
-                        "content": str(data),
-                    }
+            messages.extend(tool_messages)
 
-                    tool_messages.append(func_response)
-                elif call.function.name == "get_cryptocurrency_data_by_id":
-                    data = wrapper_function_call(get_cryptocurrency_data_by_id, call.function.arguments)
-                    func_response = {
-                        "tool_call_id": call.id,
-                        "role": "tool",
-                        "name": call.function.name,
-                        "content": str(data),
-                    }
-
-                    tool_messages.append(func_response)
-                elif call.function.name == "get_exchange_rates":
-                    data = wrapper_function_call(get_exchange_rates, call.function.arguments)
-                    func_response = {
-                        "tool_call_id": call.id,
-                        "role": "tool",
-                        "name": call.function.name,
-                        "content": str(data),
-                    }
-
-                    tool_messages.append(func_response)
-                elif call.function.name == "generate_image":
-                    arguments = json.loads(call.function.arguments)
-                    image_prompt = arguments["prompt"]
-                    thread_pool.submit(
-                        handle_image_generation,
-                        current_message if prompt_is_raw else image_prompt,
-                        prompt_is_raw,
-                        channel_id,
-                        root_id,
-                    )
-                elif call.function.name == "raw_html_to_image":
-                    arguments = json.loads(call.function.arguments)
-                    raw_html_code = arguments.get("raw_html_code", None)
-                    url = arguments.get("url", None)
-
-                    thread_pool.submit(
-                        handle_html_image_generation,
-                        raw_html_code,
-                        url,
-                        channel_id,
-                        root_id,
-                    )
-                else:
-                    func_response = {
-                        "tool_call_id": call.id,
-                        "role": "tool",
-                        "name": call.function.name,
-                        "content": "You hallucinated this function call, it does not exist",
-                    }
-
-                    tool_messages.append(func_response)
-
-            # If all tool calls were image generation, we do not need to continue here. Refactor this sometime
-            image_gen_calls_only = all(
-                call.function.name in ("generate_image", "raw_html_to_image") for call in tool_calls
+            response = ai_client.chat.completions.create(
+                model=model,
+                max_tokens=max_tokens,
+                messages=[{"role": "system", "content": get_system_instructions()}, *messages],
+                timeout=timeout,
+                temperature=temperature,
+                tools=tools,
+                tool_choice="none",
             )
-            if image_gen_calls_only:
-                return
 
-            # Remove all image generation tool calls from the message for API compliance, as we handle images differently
-            initial_message_response.tool_calls = [
-                call for call in tool_calls if call.function.name not in ("generate_image", "raw_html_to_image")
-            ]
-
-            # Requery in case there are new messages from function calls
-            if tool_messages:
-                # Add the initial response to the messages array as it contains infos about tool calls
-                messages.append(initial_message_response)
-
-                messages.extend(tool_messages)
-
-                response = ai_client.chat.completions.create(
-                    model=model,
-                    max_tokens=max_tokens,
-                    messages=[{"role": "system", "content": get_system_instructions()}, *messages],
-                    timeout=timeout,
-                    temperature=temperature,
-                    tools=tools,
-                    tool_choice="none",
-                )
-
-                prompt_tokens += response.usage.prompt_tokens
-                completion_tokens += response.usage.completion_tokens
+            prompt_tokens += response.usage.prompt_tokens
+            completion_tokens += response.usage.completion_tokens
 
     response_text = response.choices[0].message.content
 
@@ -726,7 +728,7 @@ async def raw_html_to_image(raw_html, url):
             encoded_html = base64.b64encode(raw_html.encode("utf-8")).decode("utf-8")
             final_url = f"data:text/html;base64,{encoded_html}"
         elif url:
-            if re.search(REGEX_LOCAL_LINKS, url):
+            if re.search(REGEX_LOCAL_LINKS, url, re.IGNORECASE):
                 raise Exception(f"Local URLs are not allowed for screenshotting {url}")
             final_url = url
 
@@ -869,12 +871,12 @@ def process_message(event_data):
                 links = re.findall(r"(https?://\S+)", thread_message_text, re.IGNORECASE)  # Allow http and https links
                 content["website_data"] = []
 
-                # We don't want grab URL content from links the assistant sent
+                # We don't want to grab URL content from links the assistant sent
                 # If keep URL content is disabled, we will skip the URL content code unless its the last message
                 is_last_message = index == len(thread_messages) - 1
                 if thread_role == "user" and keep_all_url_content or is_last_message:
                     for link in links:
-                        if re.search(REGEX_LOCAL_LINKS, link):
+                        if re.search(REGEX_LOCAL_LINKS, link, re.IGNORECASE):
                             logger.info(f"Skipping local URL: {link}")
                             continue
 
@@ -1068,7 +1070,7 @@ def get_file_content(file_details_json):
         image_messages.append(construct_image_content_message(content_type, image_data_base64))
         return "", image_messages
 
-    if content_type == "application/pdf":
+    if "application/pdf" in content_type:
         return extract_pdf_content(file.content)
 
     # Return other files simply as string
@@ -1180,7 +1182,7 @@ def yt_extract_video_id(url):
     pattern = (
         r"(?:youtube\.com/(?:[^/]+/.+/|(?:v|e(?:mbed)?)/|.*[?&]v=)|youtu\.be/|youtube\.com/shorts/)([^\"&?/\s]{11})"
     )
-    match = re.search(pattern, url)
+    match = re.search(pattern, url, re.IGNORECASE)
     return match.group(1) if match else None
 
 
@@ -1216,7 +1218,7 @@ def yt_is_valid_url(url):
     pattern = (
         r"(?:youtube\.com/(?:[^/]+/.+/|(?:v|e(?:mbed)?)/|.*[?&]v=)|youtu\.be/|youtube\.com/shorts/)([^\"&?/\s]{11})"
     )
-    match = re.search(pattern, url)
+    match = re.search(pattern, url, re.IGNORECASE)
     return bool(match)
 
 
@@ -1244,13 +1246,14 @@ def request_flaresolverr(link):
     data = response.json()
 
     if data["status"] == "ok":
+        # FlareSolverr always returns empty headers/200 status code, as per https://github.com/FlareSolverr/FlareSolverr/issues/1162
         content = data["solution"]["response"]
         return content
 
     raise Exception(f"FlareSolverr request failed: {data}")
 
 
-def request_httpx(prev_response):
+def request_httpx(prev_response, content_type):
     content_chunks = []
     total_size = 0
     for chunk in prev_response.iter_bytes():
@@ -1258,12 +1261,16 @@ def request_httpx(prev_response):
         total_size += len(chunk)
         if total_size > max_response_size:
             raise Exception("Website size exceeded the maximum limit for the chatbot")
-    return b"".join(content_chunks)
+    content = b"".join(content_chunks)
+    if content_type.startswith("text/"):
+        content = content.decode("utf-8", errors="surrogateescape")
+    return content
 
 
-def request_link_text_content(link, prev_response):
+def request_link_text_content(link, prev_response, content_type):
     raw_content = None
     try:
+        # Note: FlareSolverr does not support returning content_type, so after redirections it could possibly be a different type
         if flaresolverr_endpoint:
             raw_content = request_flaresolverr(link)
         else:
@@ -1271,26 +1278,27 @@ def request_link_text_content(link, prev_response):
     except Exception as e:
         logger.debug(f"Falling back to HTTPX. Reason: {str(e)}")
 
-    if not raw_content:
-        raw_content = request_httpx(prev_response)
-
-    soup = BeautifulSoup(raw_content, "html.parser")
-    website_content = soup.get_text(" | ", strip=True)
-
-    if website_content == "New Tab":
+    if raw_content and "<title>New Tab</title>" in raw_content:
         logger.debug(
             "Website content is 'New Tab', retrying with HTTPX."
         )  # FlareSolverr issue I haven't figured out yet, happens with direct .CSV files for example
-        raw_content = request_httpx(prev_response)
+        raw_content = None
+
+    if not raw_content:
+        raw_content = request_httpx(prev_response, content_type)
+
+    if content_type.startswith(("text/html", "application/xhtml+xml")):
         soup = BeautifulSoup(raw_content, "html.parser")
         website_content = soup.get_text(" | ", strip=True)
 
-    tokens = len(model_encoder.encode(website_content))
+        tokens = len(model_encoder.encode(website_content))
 
-    if tokens > 120000:
-        logger.debug("Website text content too large, trying to extract article content only")
-        article_texts = [article.get_text(" | ", strip=True) for article in soup.find_all("article")]
-        website_content = " | ".join(article_texts)
+        if tokens > 120000:
+            logger.debug("Website text content too large, trying to extract article content only")
+            article_texts = [article.get_text(" | ", strip=True) for article in soup.find_all("article")]
+            website_content = " | ".join(article_texts)
+    else:
+        website_content = raw_content.strip()
 
     if not website_content:
         raise Exception("No text content found on website")
@@ -1329,7 +1337,7 @@ def request_link_content(link):
         with client.stream("GET", link, timeout=4, follow_redirects=True) as response:
             final_url = str(response.url)
 
-            if re.search(REGEX_LOCAL_LINKS, final_url):
+            if re.search(REGEX_LOCAL_LINKS, final_url, re.IGNORECASE):
                 logger.info(f"Skipping local URL after redirection: {final_url}")
                 raise Exception("Local URL is disallowed")
 
@@ -1340,7 +1348,7 @@ def request_link_content(link):
             if "application/pdf" in content_type:
                 return request_link_pdf_content(response)
 
-            return request_link_text_content(link, response), []
+            return request_link_text_content(link, response, content_type), []
 
 
 def request_link_pdf_content(prev_response):
@@ -1390,10 +1398,8 @@ def compress_image_data(image_data, max_size_mb):
 def resize_image_data(image_data, max_dimensions, max_size_mb):
     image = Image.open(BytesIO(image_data))
 
-    max_dimension_1, max_dimension_2 = max_dimensions
-
-    width = max(max_dimension_1, max_dimension_2)
-    height = min(max_dimension_1, max_dimension_2)
+    width = max(max_dimensions)
+    height = min(max_dimensions)
 
     image.thumbnail((width, height) if image.width > image.height else (height, width), Image.Resampling.LANCZOS)
 

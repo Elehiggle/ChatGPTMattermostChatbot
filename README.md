@@ -67,16 +67,16 @@ This project is a chatbot for Mattermost that integrates with the OpenAI API to 
 
 4. Set the following environment variables with your own values:
 
-| Parameter              | Description                                                                                                                                                                                              |
-|------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `AI_API_KEY`           | Required. Your OpenAI API key                                                                                                                                                                            |
-| `AI_MODEL`             | The OpenAI model to use. Default: "gpt-4o"                                                                                                                                                               |
-| `MATTERMOST_URL`       | Required. The URL of your Mattermost server                                                                                                                                                              |
-| `MATTERMOST_TOKEN`     | Required if not using user/password. The bot token (alternatively personal access token) with relevant permissions created specifically for the chatbot. Don't forget to add the bot account to the team |
-| `MATTERMOST_USERNAME`  | Required if not using token. The username of the dedicated Mattermost user account for the chatbot (if using username/password login)                                                                    |
-| `MATTERMOST_PASSWORD`  | Required if not using token. The password of the dedicated Mattermost user account for the chatbot (if using username/password login)                                                                    |
-| `MATTERMOST_MFA_TOKEN` | The MFA token of the dedicated Mattermost user account for the chatbot (if using MFA)                                                                                                                    |
-| `TOOL_USE_ENABLED`     | Allows tool function calling for live data and image generation. Slightly increased cost because input is filled with function definitions. Default: "TRUE"                                              |
+| Parameter              | Description                                                                                                                                                                                                |
+|------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `AI_API_KEY`           | Required. Your OpenAI API key                                                                                                                                                                              |
+| `AI_MODEL`             | The OpenAI model to use. Default: "gpt-4o"                                                                                                                                                                 |
+| `MATTERMOST_URL`       | Required. The URL of your Mattermost server                                                                                                                                                                |
+| `MATTERMOST_TOKEN`     | Required if not using user/password. The bot token (alternatively personal access token) with relevant permissions created specifically for the chatbot. Don't forget to add the bot account to the team   |
+| `MATTERMOST_USERNAME`  | Required if not using token. The username of the dedicated Mattermost user account for the chatbot (if using username/password login)                                                                      |
+| `MATTERMOST_PASSWORD`  | Required if not using token. The password of the dedicated Mattermost user account for the chatbot (if using username/password login)                                                                      |
+| `MATTERMOST_MFA_TOKEN` | The MFA token of the dedicated Mattermost user account for the chatbot (if using MFA)                                                                                                                      |
+| `TOOL_USE_ENABLED`     | Allows tool function calling for live data and image generation. Slightly increased cost because input is filled with function definitions (roughly 0.15 **cents** per query, 0.0015 USD). Default: "TRUE" |
 
 ### Extended optional configuration variables
 
@@ -89,9 +89,10 @@ This project is a chatbot for Mattermost that integrates with the OpenAI API to 
 | `IMAGE_SIZE`                  | The image size for image generation. Default: "1024x1024" (see [docs](https://platform.openai.com/docs/guides/images/usage?context=node) for allowed types)                                                                                                                                     |
 | `IMAGE_QUALITY`               | The image quality for image generation. Default: "standard" (also: "hd")                                                                                                                                                                                                                        |
 | `IMAGE_STYLE`                 | The image style for image generation. Default: "vivid" (also: "natural")                                                                                                                                                                                                                        |
+| `TYPE_INDICATOR_MODE`         | "FULL" = typing indicator will be sent to main thread/channel and the subthread; "THREAD" = only to the subthread, unless there is none (this is kinda expected behaviour, but I prefer full. Default: "FULL"                                                                                   |
 | `MAX_RESPONSE_SIZE_MB`        | The maximum size of the website or file content to extract (in megabytes, per URL/file). Default: "100"                                                                                                                                                                                         |
 | `FLARESOLVERR_ENDPOINT`       | Endpoint URL to your [FlareSolverr](https://github.com/FlareSolverr/FlareSolverr) instance (eg. "<http://192.168.1.55:8191/v1>"). If you use this, MAX_RESPONSE_SIZE_MB won't be honored since it can't stream content. For most effectiveness, use a residential IP endpoint                   |
-| `BROWSER_EXECUTABLE_PATH`     | Path to a chromium binary which is used for the raw_html_to_image function call capability. Fully optional. Chromium is auto installed on the docker image. Default: "/usr/bin/chromium"                                                                                                        |
+| `BROWSER_EXECUTABLE_PATH`     | Path to a Chromium binary which is used for the raw_html_to_image function call capability. Fully optional. Chromium is auto installed on the docker image. Default: "/usr/bin/chromium"                                                                                                        |
 | `KEEP_ALL_URL_CONTENT`        | Whether to feed the AI all URL content from the whole conversation thread. The website result is cached in memory. If you only want it to know about the current message's URL content (due to context size or cost), set to "FALSE". Default: "TRUE"                                           |
 | `MATTERMOST_IGNORE_SENDER_ID` | The user ID of a user to ignore (optional, useful if you have multiple chatbots that are not real bot accounts to prevent endless loops). Supports multiple, separated by comma                                                                                                                 |
 | `MATTERMOST_PORT`             | The port of your Mattermost server. Default: "443"                                                                                                                                                                                                                                              |
@@ -162,9 +163,8 @@ like function calling to retrieve GitHub issues, for example.
 
 ## Known Issues
 
-- Typing indicator is only sent to the channel, not the conversation thread. There is some issue I haven't figured out yet. I even prefer it this way, but mobile users can't see the channel while in a thread.
-
-Other than that, while the chatbot works great for me, there might still be some bugs lurking inside. I have done my best to address them, but if you encounter any issues, please let me know!
+While the chatbot works great for me, there might still be some bugs lurking inside. I have done my best to address
+them, but if you encounter any issues, please let me know!
 
 ## Monkey Patch
 
