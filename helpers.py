@@ -204,13 +204,13 @@ def wrapper_function_call(func, call_input_arguments, *args, **kwargs):
 
 
 def yt_extract_video_id(url):
-    match = re.search(YOUTUBE_VALID_LINKS, url, re.IGNORECASE)
+    match = re.search(YOUTUBE_VALID_LINKS, url)
     return match.group(1) if match else None
 
 
 def yt_is_valid_url(url):
     # Pattern to match various YouTube URL formats including video IDs
-    match = re.search(YOUTUBE_VALID_LINKS, url, re.IGNORECASE)
+    match = re.search(YOUTUBE_VALID_LINKS, url)
     return bool(match)
 
 

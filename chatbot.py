@@ -43,7 +43,7 @@ tools = [
         "type": "function",
         "function": {
             "name": "raw_html_to_image",
-            "description": "Generates an image from raw HTML code. You can also pass a URL which will be screenshotted, but only do that if a screenshot is specifically requested.",
+            "description": "Generates an image from raw HTML code. You can also pass a URL which will be screenshotted, but only do that if a screenshot is specifically requested (e.g. the user says screenshot this).",
             "parameters": {
                 "type": "object",
                 "properties": {
