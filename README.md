@@ -62,7 +62,7 @@ This project is a chatbot for Mattermost that integrates with the OpenAI API to 
     ```
    _or alternatively:_
     ```bash
-    python3 -m pip install openai mattermostdriver certifi beautifulsoup4 pillow httpx youtube-transcript-api yt-dlp PyMuPDF defusedxml yfinance pymupdf4llm tiktoken nodriver
+    python3 -m pip install openai mattermostdriver certifi beautifulsoup4 pillow httpx youtube-transcript-api yt-dlp PyMuPDF defusedxml yfinance pymupdf4llm tiktoken nodriver validators
     ```
 
 4. Set the following environment variables with your own values:
@@ -125,7 +125,7 @@ You can also run the chatbot using Docker. Use the following command to run the 
 ```bash
 docker run -d --name chatbotgpt \
   -e AI_API_KEY="your_ai_api_key" \
-  -e AI_MODEL="gpt-4-turbo" \
+  -e AI_MODEL="gpt-4o" \
   -e MATTERMOST_URL="mattermostinstance.example.com" \
   -e MATTERMOST_TOKEN="your_mattermost_token" \
   -e MAX_TOKENS="4096" \

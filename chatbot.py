@@ -1,26 +1,19 @@
 import time
-import ssl
 import traceback
 import json
-import os
 import threading
 import re
 import datetime
-import logging
 import concurrent.futures
 import base64
 import tempfile
 import asyncio
-from time import monotonic_ns
-from functools import lru_cache, wraps
-from io import BytesIO
+from functools import lru_cache
 from defusedxml import ElementTree
 import yfinance
-import certifi
 import pymupdf
 import pymupdf4llm
 import httpx
-from PIL import Image
 from mattermostdriver.driver import Driver
 from bs4 import BeautifulSoup
 from youtube_transcript_api import YouTubeTranscriptApi
@@ -28,88 +21,22 @@ from yt_dlp import YoutubeDL
 from openai import OpenAI, NOT_GIVEN
 import tiktoken
 import nodriver as uc
+from helpers import (
+    resize_image_data,
+    yt_is_valid_url,
+    yt_extract_video_id,
+    wrapper_function_call,
+    split_message,
+    is_valid_url,
+    sanitize_username, timed_lru_cache,
+)
+from config import *  # pylint: disable=W0401 wildcard-import, unused-wildcard-import
 
-log_level_root = os.getenv("LOG_LEVEL_ROOT", "INFO").upper()
 logging.basicConfig(level=log_level_root)
 
-log_level = os.getenv("LOG_LEVEL", "INFO").upper()
 logger = logging.getLogger(__name__)
 logger.setLevel(log_level)
 
-# fix ssl certificates for compiled binaries
-# https://github.com/pyinstaller/pyinstaller/issues/7229
-# https://stackoverflow.com/questions/55736855/how-to-change-the-cafile-argument-in-the-ssl-module-in-python3
-os.environ["REQUESTS_CA_BUNDLE"] = certifi.where()
-os.environ["SSL_CERT_FILE"] = certifi.where()
-
-# save the original create_default_context function so we can call it later
-create_default_context_orig = ssl.create_default_context
-
-
-# define a new create_default_context function that sets purpose to ssl.Purpose.SERVER_AUTH
-def cdc(*args, **kwargs):
-    kwargs["cafile"] = certifi.where()  # Use certifi's CA bundle
-    kwargs["purpose"] = ssl.Purpose.SERVER_AUTH
-    return create_default_context_orig(*args, **kwargs)
-
-
-# monkey patching ssl.create_default_context to fix SSL error
-ssl.create_default_context = cdc
-
-
-def timed_lru_cache(_func=None, *, seconds: int = 600, maxsize: int = 128, typed: bool = False):
-    """Extension of functools lru_cache with a timeout
-
-    Parameters:
-    seconds (int): Timeout in seconds to clear the WHOLE cache, default = 10 minutes
-    maxsize (int): Maximum Size of the Cache
-    typed (bool): Same value of different type will be a different entry
-
-    """
-
-    def wrapper_cache(f):
-        f = lru_cache(maxsize=maxsize, typed=typed)(f)
-        f.delta = seconds * 10 ** 9  # fmt: skip
-        f.expiration = monotonic_ns() + f.delta
-
-        @wraps(f)
-        def wrapped_f(*args, **kwargs):
-            if monotonic_ns() >= f.expiration:
-                f.cache_clear()
-                f.expiration = monotonic_ns() + f.delta
-            return f(*args, **kwargs)
-
-        wrapped_f.cache_info = f.cache_info
-        wrapped_f.cache_clear = f.cache_clear
-        return wrapped_f
-
-    # To allow decorator to be used without arguments
-    if _func is None:
-        return wrapper_cache
-
-    return wrapper_cache(_func)
-
-
-# AI parameters
-api_key = os.environ["AI_API_KEY"]
-model = os.getenv("AI_MODEL", "gpt-4o")
-ai_api_baseurl = os.getenv("AI_API_BASEURL", None)
-timeout = int(os.getenv("AI_TIMEOUT", "120"))
-max_tokens = int(os.getenv("MAX_TOKENS", "4096"))
-temperature = float(os.getenv("TEMPERATURE", "1"))
-system_prompt_unformatted = os.getenv(
-    "AI_SYSTEM_PROMPT",
-    """
-You are a helpful assistant used in a Mattermost chat. The current UTC time is {current_time}. The user's name is sent to you in the name parameter. 
-Whenever users asks you for help you will provide them with succinct answers formatted using Markdown. Do not unnecessarily greet people with their name, 
-do not be apologetic. 
-For tasks requiring reasoning or math, use the Chain-of-Thought methodology to explain your step-by-step calculations or logic before presenting your answer. 
-Extra data is sent to you in a structured way, which might include file data, website data, and more, which is sent alongside the user message. 
-If a user sends a link, use the extracted URL content provided, do not assume or make up stories based on the URL alone. 
-If a user sends a YouTube link, primarily focus on the transcript and do not unnecessarily repeat the title, description or uploader of the video. 
-In your answer DO NOT contain the link to the video/website the user just provided to you as the user already knows it, unless the task requires it. 
-If your response contains any URLs, make sure to properly escape them using Markdown syntax for display purposes.""",
-)
 
 tools = [
     {
@@ -203,40 +130,6 @@ tools = [
     },
 ]
 
-image_size = os.getenv("IMAGE_SIZE", "1024x1024")
-image_quality = os.getenv("IMAGE_QUALITY", "standard")
-image_style = os.getenv("IMAGE_STYLE", "vivid")
-
-# Mattermost server details
-mattermost_url = os.environ["MATTERMOST_URL"]
-mattermost_scheme = os.getenv("MATTERMOST_SCHEME", "https")
-mattermost_port = int(os.getenv("MATTERMOST_PORT", "443"))
-mattermost_basepath = os.getenv("MATTERMOST_BASEPATH", "/api/v4")
-mattermost_cert_verify = os.getenv("MATTERMOST_CERT_VERIFY", True)  # pylint: disable=invalid-envvar-default
-mattermost_token = os.getenv("MATTERMOST_TOKEN", "")
-mattermost_ignore_sender_id = os.getenv("MATTERMOST_IGNORE_SENDER_ID", "").split(",")
-mattermost_username = os.getenv("MATTERMOST_USERNAME", "")
-mattermost_password = os.getenv("MATTERMOST_PASSWORD", "")
-mattermost_mfa_token = os.getenv("MATTERMOST_MFA_TOKEN", "")
-
-typing_indicator_mode_is_full = os.getenv("TYPING_INDICATOR_MODE", "FULL") == "FULL"
-
-flaresolverr_endpoint = os.getenv("FLARESOLVERR_ENDPOINT", "")
-
-browser_executable_path = os.getenv("BROWSER_EXECUTABLE_PATH", "/usr/bin/chromium")
-
-# Maximum website/file size
-max_response_size = 1024 * 1024 * int(os.getenv("MAX_RESPONSE_SIZE_MB", "100"))
-
-keep_all_url_content = os.getenv("KEEP_ALL_URL_CONTENT", "TRUE").upper() == "TRUE"
-
-tool_use_enabled = os.getenv("TOOL_USE_ENABLED", "TRUE").upper() == "TRUE"
-
-# For filtering local links
-REGEX_LOCAL_LINKS = (
-    r"(?:^|\b)(127\.|192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[0-1])\.|::1|[fF][cCdD]00::|\blocalhost\b)(?:$|\b)"
-)
-
 # Create a driver instance
 driver = Driver(
     {
@@ -265,32 +158,10 @@ model_encoder = tiktoken.encoding_for_model("gpt-4o")
 # Create a thread pool with a fixed number of worker threads
 thread_pool = concurrent.futures.ThreadPoolExecutor(max_workers=5)
 
-compatible_image_content_types = [
-    "image/jpeg",
-    "image/png",
-    "image/gif",
-    "image/webp",
-]
-
-mattermost_max_image_dimensions = (
-    7680,
-    4320,
-)  # https://docs.mattermost.com/collaborate/share-files-in-messages.html#attachment-limits-and-sizes
-ai_model_max_vision_image_dimensions = (2000, 768)  # https://platform.openai.com/docs/guides/vision/managing-images
-
 
 def get_system_instructions():
     current_time = datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
     return system_prompt_unformatted.format(current_time=current_time, CHATBOT_USERNAME=CHATBOT_USERNAME)
-
-
-@lru_cache(maxsize=1000)
-def sanitize_username(username):
-    if not re.match(r"^[a-zA-Z0-9_-]{1,64}$", username):
-        username = re.sub(r"[.@!?]", "", username)[:64]
-    if not re.match(r"^[a-zA-Z0-9_-]{1,64}$", username):
-        username = "".join(re.findall(r"[a-zA-Z0-9_-]", username))[:64]
-    return username
 
 
 @lru_cache(maxsize=1000)
@@ -333,81 +204,6 @@ def handle_typing_indicator(user_id, channel_id, parent_id):
     )
     typing_indicator_thread.start()
     return stop_typing_event, typing_indicator_thread
-
-
-def split_message(msg, max_length=4000):
-    """
-    Split a message based on a maximum character length, ensuring Markdown code blocks
-    and their languages are preserved. Avoids unnecessary linebreaks at the end of the last message
-    and when closing a code block if the last line is already a newline.
-
-    Args:
-    - msg (str): The message to be split.
-    - max_length (int, optional): The maximum length of each split message. Defaults to 4000.
-
-    Returns:
-    - list of str: The message split into chunks, preserving Markdown code blocks and languages,
-                   and avoiding unnecessary linebreaks.
-    """
-    if len(msg) <= max_length:
-        return [msg]
-
-    if len(msg) > 40000:
-        raise Exception(f"Response message too long, length: {len(msg)}")
-
-    current_chunk = ""  # Holds the current message chunk
-    chunks = []  # Collects all message chunks
-    in_code_block = False  # Tracks whether the current line is inside a code block
-    code_block_lang = ""  # Keeps the language of the current code block
-
-    # Helper function to add a chunk to the list
-    def add_chunk(chunk, in_code, code_lang):
-        if in_code:
-            # Check if the last line is not just a newline itself
-            if not chunk.endswith("\n\n"):
-                chunk += "\n"
-            chunk += "```"
-        chunks.append(chunk)
-        if in_code:
-            # Start a new code block with the same language
-            return f"```{code_lang}\n"
-        return ""
-
-    lines = msg.split("\n")
-    for i, line in enumerate(lines):
-        # Check if this line starts or ends a code block
-        if line.startswith("```"):
-            if in_code_block:
-                # Ending a code block
-                in_code_block = False
-                # Avoid adding an extra newline if the line is empty
-                if current_chunk.endswith("\n"):
-                    current_chunk += line
-                else:
-                    current_chunk += "\n" + line
-            else:
-                # Starting a new code block, capture the language
-                in_code_block = True
-                code_block_lang = line[3:].strip()  # Remove the backticks and get the language
-                current_chunk += line + "\n"
-        else:
-            # If adding this line exceeds the max length, we need to split here
-            if len(current_chunk) + len(line) + 1 > max_length:
-                # Split here, preserve the code block state and language if necessary
-                current_chunk = add_chunk(current_chunk, in_code_block, code_block_lang)
-                current_chunk += line
-                if i < len(lines) - 1:  # Avoid adding a newline at the end of the last line
-                    current_chunk += "\n"
-            else:
-                current_chunk += line
-                if i < len(lines) - 1:  # Avoid adding a newline at the end of the last line
-                    current_chunk += "\n"
-
-    # Don't forget to add the last chunk
-    if current_chunk:
-        add_chunk(current_chunk, in_code_block, code_block_lang)
-
-    return chunks
 
 
 # maybe use general handle generation function that does typing stuff etc so we can save some code
@@ -684,16 +480,6 @@ def handle_generation(current_message, messages, channel_id, root_id):
         )
 
 
-def wrapper_function_call(func, call_input_arguments, *args, **kwargs):
-    try:
-        result = func(call_input_arguments, *args, **kwargs)
-    except Exception as e:
-        logger.error(f"Error calling function call function: {str(e)} {traceback.format_exc()}")
-        result = f"An error occurred: {str(e)}"
-        return result
-    return result
-
-
 @timed_lru_cache(seconds=300, maxsize=100)
 def get_stock_ticker_data(arguments):
     arguments = json.loads(arguments)
@@ -727,8 +513,8 @@ async def raw_html_to_image(raw_html, url):
             encoded_html = base64.b64encode(raw_html.encode("utf-8")).decode("utf-8")
             final_url = f"data:text/html;base64,{encoded_html}"
         elif url:
-            if re.search(REGEX_LOCAL_LINKS, url, re.IGNORECASE):
-                raise Exception(f"Local URLs are not allowed for screenshotting {url}")
+            if not is_valid_url(url):
+                raise Exception(f"Local/invalid URLs are not allowed for screenshotting {url}")
             final_url = url
 
         if not final_url:
@@ -875,8 +661,7 @@ def process_message(event_data):
                 is_last_message = index == len(thread_messages) - 1
                 if thread_role == "user" and keep_all_url_content or is_last_message:
                     for link in links:
-                        if re.search(REGEX_LOCAL_LINKS, link, re.IGNORECASE):
-                            logger.info(f"Skipping local URL: {link}")
+                        if not is_valid_url(link):
                             continue
 
                         website_data = {
@@ -1174,14 +959,6 @@ def yt_find_preferred_transcript(video_id):
     return transcripts[0] if transcripts else None
 
 
-def yt_extract_video_id(url):
-    pattern = (
-        r"(?:youtube\.com/(?:[^/]+/.+/|(?:v|e(?:mbed)?)/|.*[?&]v=)|youtu\.be/|youtube\.com/shorts/)([^\"&?/\s]{11})"
-    )
-    match = re.search(pattern, url, re.IGNORECASE)
-    return match.group(1) if match else None
-
-
 def yt_get_transcript(url):
     video_id = yt_extract_video_id(url)
     preferred_transcript = yt_find_preferred_transcript(video_id)
@@ -1207,15 +984,6 @@ def yt_get_video_info(url):
         uploader = info["uploader"]
 
         return title, description, uploader
-
-
-def yt_is_valid_url(url):
-    # Pattern to match various YouTube URL formats including video IDs
-    pattern = (
-        r"(?:youtube\.com/(?:[^/]+/.+/|(?:v|e(?:mbed)?)/|.*[?&]v=)|youtu\.be/|youtube\.com/shorts/)([^\"&?/\s]{11})"
-    )
-    match = re.search(pattern, url, re.IGNORECASE)
-    return bool(match)
 
 
 def yt_get_content(link):
@@ -1333,9 +1101,9 @@ def request_link_content(link):
         with client.stream("GET", link, timeout=4, follow_redirects=True) as response:
             final_url = str(response.url)
 
-            if re.search(REGEX_LOCAL_LINKS, final_url, re.IGNORECASE):
-                logger.info(f"Skipping local URL after redirection: {final_url}")
-                raise Exception("Local URL is disallowed")
+            if not is_valid_url(final_url):
+                logger.info(f"Skipping local/invalid URL {final_url} after redirection: {link}")
+                raise Exception("Local/invalid URL is disallowed")
 
             content_type = response.headers.get("content-type", "").lower()
             if "image/" in content_type:
@@ -1358,50 +1126,6 @@ def request_link_pdf_content(prev_response):
             raise Exception("PDF size from the website exceeded the maximum limit for the chatbot")
 
     return extract_pdf_content(pdf_data)
-
-
-def compress_image(image, max_size_mb):
-    buffer = BytesIO()
-    image.save(buffer, format=image.format, optimize=True)
-    return compress_image_data(buffer.getvalue(), max_size_mb)
-
-
-def compress_image_data(image_data, max_size_mb):
-    max_size = max_size_mb * 1024 * 1024
-    buffer = BytesIO(image_data)
-    image = Image.open(buffer)
-
-    quality = 90
-
-    # Compress the image until the size is within the target
-    while len(image_data) > max_size:
-        if quality <= 0:
-            raise Exception("Image too large, can't compress any further")
-
-        buffer = BytesIO()
-        image.save(
-            buffer,
-            format=image.format,
-            optimize=True,
-            quality=quality,
-        )
-        image_data = buffer.getvalue()
-        quality -= 5
-
-    return image_data
-
-
-def resize_image_data(image_data, max_dimensions, max_size_mb):
-    image = Image.open(BytesIO(image_data))
-
-    width = max(max_dimensions)
-    height = min(max_dimensions)
-
-    image.thumbnail((width, height) if image.width > image.height else (height, width), Image.Resampling.LANCZOS)
-
-    compressed_image_data = compress_image(image, max_size_mb)
-
-    return compressed_image_data
 
 
 def main():

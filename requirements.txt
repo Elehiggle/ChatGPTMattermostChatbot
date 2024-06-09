@@ -10,5 +10,6 @@ yfinance>=0.2.40
 pymupdf4llm>=0.0.5
 defusedxml>=0.7.1
 nodriver>=0.29rc2
+validators>=0.28.3
 tiktoken>=0.7.0
 openai>=1.31.0
