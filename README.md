@@ -21,6 +21,7 @@ This project is a chatbot for Mattermost that integrates with the OpenAI API to 
 - Supports the **Vision API** for describing images. Images from PDFs will also be sent here
 - **Gets transcripts of YouTube videos** for easy tl;dw summarizations. Title, description and uploader are also
   provided
+- Ability to create custom emoji from image URLs, optionally with removing the background
 - Accesses additional live information via function calling (requires TOOL_USE_ENABLED="TRUE").
   Currently supported: **stock data** (via Yahoo Finance, eg. ask about AAPL)
   **cryptocurrency data** (
@@ -62,7 +63,7 @@ This project is a chatbot for Mattermost that integrates with the OpenAI API to 
     ```
    _or alternatively:_
     ```bash
-    python3 -m pip install openai mattermostdriver certifi beautifulsoup4 pillow httpx youtube-transcript-api yt-dlp PyMuPDF defusedxml yfinance pymupdf4llm tiktoken nodriver validators
+    python3 -m pip install openai tiktoken mattermostdriver certifi beautifulsoup4 pillow httpx youtube-transcript-api yt-dlp PyMuPDF defusedxml yfinance pymupdf4llm nodriver validators rembg
     ```
 
 4. Set the following environment variables with your own values:
@@ -139,6 +140,13 @@ docker run -d --name chatbotgpt \
 
 The AI will generate pictures for you. If you start your message with a "#" it will try to use your prompt as is without
 any modification by the API.
+
+### Using Custom emoji generation
+
+![Mattermost Custom emoji bot example](./custom_emoji_demo.png)
+
+The bot will take an image URL, optionally remove the background, and create a custom emoji on the Mattermost server
+with a provided or generated name.
 
 ## How does this bot differ from the official Mattermost AI plugin?
 

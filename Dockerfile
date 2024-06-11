@@ -2,6 +2,8 @@ FROM python:3.12.4-slim
 
 WORKDIR /app
 
+COPY . .
+
 # Install Chromium. Those are public API keys that even Debian uses.
 RUN echo "ttf-mscorefonts-installer msttcorefonts/accepted-mscorefonts-eula select true" | debconf-set-selections && \
     sed -i -e "s/ main[[:space:]]*\$/ main contrib non-free/" /etc/apt/sources.list.d/debian.sources && \
@@ -29,9 +31,10 @@ RUN fc-cache -f -v && \
     mkdir -p /etc/chromium.d/ && \
     echo -e 'export GOOGLE_API_KEY="AIzaSyCkfPOPZXDKNn8hhgu3JrA62wIgC93d44k"\nexport GOOGLE_DEFAULT_CLIENT_ID="811574891467.apps.googleusercontent.com"\nexport GOOGLE_DEFAULT_CLIENT_SECRET="kdloedMFGdGla2P1zacGjAQh"' > /etc/chromium.d/googleapikeys
 
+# Add u2net.onnx model for the remove background library
+ADD https://github.com/danielgatis/rembg/releases/download/v0.0.0/u2net.onnx /root/.u2net/u2net.onnx
+
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
-
-COPY . .
 
 CMD ["python", "chatbot.py"]

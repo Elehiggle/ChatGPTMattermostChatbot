@@ -14,6 +14,7 @@ import yfinance
 import pymupdf
 import pymupdf4llm
 import httpx
+import rembg
 from mattermostdriver.driver import Driver
 from bs4 import BeautifulSoup
 from youtube_transcript_api import YouTubeTranscriptApi
@@ -28,7 +29,8 @@ from helpers import (
     wrapper_function_call,
     split_message,
     is_valid_url,
-    sanitize_username, timed_lru_cache,
+    sanitize_username,
+    timed_lru_cache,
 )
 from config import *  # pylint: disable=W0401 wildcard-import, unused-wildcard-import
 
@@ -56,6 +58,29 @@ tools = [
                         "description": "Valid URL (with http/https in front) to be opened on a browser and taken a screenshot of. Only one parameter is allowed",
                     },
                 },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "create_custom_emoji_by_url",
+            "description": "Creates a custom emoji from an image URL, optionally - at the user's request - removes the background of the image",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "image_url": {
+                        "type": "string",
+                        "description": "Full valid URL to an image to be uploaded. Don't make up URLs, only use one URL the user has provided you",
+                    },
+                    "emoji_name": {"type": "string", "description": "The desired emoji name"},
+                    "remove_background": {
+                        "type": "boolean",
+                        "description": "Whether to remove the background from the image.",
+                        "default": False,
+                    },
+                },
+                "required": ["image_url", "emoji_name"],
             },
         },
     },
@@ -246,6 +271,80 @@ def handle_html_image_generation(raw_html_code, url, channel_id, root_id):
             typing_indicator_thread.join()
 
 
+def handle_custom_emoji_generation(image_url, emoji_name, remove_background, channel_id, root_id):
+    stop_typing_event = None
+    typing_indicator_thread = None
+
+    try:
+        logger.info("Starting Custom emoji generation")
+
+        # Start the typing indicator as this is a new thread
+        stop_typing_event, typing_indicator_thread = handle_typing_indicator(driver.client.userid, channel_id, root_id)
+
+        if not is_valid_url(image_url):
+            raise Exception("No local/invalid URL allowed for custom emoji generation")
+
+        emoji_name = re.sub(r"[^a-z0-9\-+_]", "", emoji_name.lower())[:64]
+
+        if not emoji_name:
+            raise Exception("Invalid emoji name")
+
+        # Refactor the image grab code into one function with the other code that we have
+        with httpx.Client() as client:
+            # By doing the redirect itself, we might already allow a local request?
+            with client.stream("GET", image_url, timeout=4, follow_redirects=True) as response:
+                response.raise_for_status()
+
+                final_url = str(response.url)
+
+                if not is_valid_url(final_url):
+                    logger.info(f"Skipping local/invalid URL {final_url} after redirection: {image_url}")
+                    raise Exception("No local/invalid URL allowed for custom emoji generation")
+
+                content_type = response.headers.get("content-type", "").lower()
+                if content_type not in compatible_emoji_image_content_types:
+                    raise Exception(f"Unsupported image content type: {content_type}")
+
+                total_size = 0
+
+                image_data = b""
+                for chunk in response.iter_bytes():
+                    image_data += chunk
+                    total_size += len(chunk)
+                    if total_size > max_response_size:
+                        raise Exception("Image size from the website exceeded the maximum limit for the chatbot")
+
+                if remove_background:
+                    logger.debug(f"Removing background of image from URL {image_url}")
+                    image_data = rembg.remove(image_data)
+
+                image_data = resize_image_data(image_data, mattermost_max_emoji_image_dimensions, 0.524287)
+                driver.emoji.create_custom_emoji(emoji_name, files={"image": image_data})
+
+                # Send the response back to the Mattermost channel as a reply to the thread or as a new thread
+                driver.posts.create_post(
+                    {
+                        "channel_id": channel_id,
+                        "message": f":{emoji_name}:",
+                        "root_id": root_id,
+                    }
+                )
+    except Exception as e:
+        logger.error(f"Custom emoji generation error: {str(e)} {traceback.format_exc()}")
+        driver.posts.create_post(
+            {
+                "channel_id": channel_id,
+                "message": f"Custom emoji generation error occurred: {str(e)}",
+                "root_id": root_id,
+            }
+        )
+    finally:
+        if stop_typing_event:
+            stop_typing_event.set()
+        if typing_indicator_thread:
+            typing_indicator_thread.join()
+
+
 def handle_image_generation(prompt, is_raw, channel_id, root_id):
     stop_typing_event = None
     typing_indicator_thread = None
@@ -365,6 +464,20 @@ def process_tool_calls(tool_calls, current_message, channel_id, root_id):
                 channel_id,
                 root_id,
             )
+        elif call.function.name == "create_custom_emoji_by_url":
+            arguments = json.loads(call.function.arguments)
+            image_url = arguments["image_url"]
+            emoji_name = arguments["emoji_name"]
+            remove_background = arguments.get("remove_background", None)
+
+            thread_pool.submit(
+                handle_custom_emoji_generation,
+                image_url,
+                emoji_name,
+                remove_background,
+                channel_id,
+                root_id,
+            )
         elif call.function.name == "raw_html_to_image":
             arguments = json.loads(call.function.arguments)
             raw_html_code = arguments.get("raw_html_code", None)
@@ -415,13 +528,18 @@ def handle_text_generation(current_message, messages, channel_id, root_id):
         tool_messages = process_tool_calls(tool_calls, current_message, channel_id, root_id)
 
         # If all tool calls were image generation, we do not need to continue here. Refactor this sometime
-        image_gen_calls_only = all(call.function.name in ("generate_image", "raw_html_to_image") for call in tool_calls)
+        image_gen_calls_only = all(
+            call.function.name in ("generate_image", "raw_html_to_image", "create_custom_emoji_by_url")
+            for call in tool_calls
+        )
         if image_gen_calls_only:
             return
 
         # Remove all image generation tool calls from the message for API compliance, as we handle images differently
         initial_message_response.tool_calls = [
-            call for call in tool_calls if call.function.name not in ("generate_image", "raw_html_to_image")
+            call
+            for call in tool_calls
+            if call.function.name not in ("generate_image", "raw_html_to_image", "create_custom_emoji_by_url")
         ]
 
         # Requery in case there are new messages from function calls
@@ -1099,6 +1217,8 @@ def request_link_content(link):
     with httpx.Client() as client:
         # By doing the redirect itself, we might already allow a local request?
         with client.stream("GET", link, timeout=4, follow_redirects=True) as response:
+            response.raise_for_status()
+
             final_url = str(response.url)
 
             if not is_valid_url(final_url):
