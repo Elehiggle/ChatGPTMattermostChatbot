@@ -10,6 +10,7 @@ from functools import lru_cache, wraps
 import certifi
 from PIL import Image
 import validators
+import rembg
 from config import log_level
 
 logger = logging.getLogger(__name__)
@@ -214,45 +215,62 @@ def yt_is_valid_url(url):
     return bool(match)
 
 
-def compress_image(image, max_size_mb):
-    buffer = BytesIO()
-    image.save(buffer, format=image.format, optimize=True)
-    return compress_image_data(buffer.getvalue(), max_size_mb)
+def compress_image(image, max_size_mb, image_format):
+    with BytesIO() as output_buffer:
+        image.save(output_buffer, format=image_format, optimize=True)
+        image_data = output_buffer.getvalue()
+    return compress_image_data(image_data, max_size_mb, image_format)
 
 
-def compress_image_data(image_data, max_size_mb):
+def compress_image_data(image_data, max_size_mb, image_format):
     max_size = max_size_mb * 1024 * 1024
-    buffer = BytesIO(image_data)
-    image = Image.open(buffer)
+    with BytesIO(image_data) as input_buffer:
+        image = Image.open(input_buffer)
 
-    quality = 90
+        quality = 90
 
-    # Compress the image until the size is within the target
-    while len(image_data) > max_size:
-        if quality <= 0:
-            raise Exception("Image too large, can't compress any further")
+        # Compress the image until the size is within the target
+        while len(image_data) > max_size:
+            if quality <= 0:
+                raise Exception("Image too large, can't compress any further")
 
-        buffer = BytesIO()
-        image.save(
-            buffer,
-            format=image.format,
-            optimize=True,
-            quality=quality,
-        )
-        image_data = buffer.getvalue()
-        quality -= 5
+            with BytesIO() as output_buffer:
+                image.save(
+                    output_buffer,
+                    format=image_format,
+                    optimize=True,
+                    quality=quality,
+                )
+                image_data = output_buffer.getvalue()
+            quality -= 5
 
     return image_data
 
 
-def resize_image_data(image_data, max_dimensions, max_size_mb):
-    image = Image.open(BytesIO(image_data))
+def resize_image_data(image_data, max_dimensions, max_size_mb, content_type):
+    image_format = content_type.split('/')[-1].upper()
+    with BytesIO(image_data) as input_buffer:
+        image = Image.open(input_buffer, formats=(image_format,))
 
-    width = max(max_dimensions)
-    height = min(max_dimensions)
+        width = max(max_dimensions)
+        height = min(max_dimensions)
 
-    image.thumbnail((width, height) if image.width > image.height else (height, width), Image.Resampling.LANCZOS)
+        image.thumbnail((width, height) if image.width > image.height else (height, width), Image.Resampling.LANCZOS)
 
-    compressed_image_data = compress_image(image, max_size_mb)
+        compressed_image_data = compress_image(image, max_size_mb, image_format)
 
     return compressed_image_data
+
+
+def remove_background_from_image(image_data):
+    image_data = rembg.remove(image_data)
+
+    # Crop unnecessary transparent pixels
+    with BytesIO(image_data) as input_buffer:
+        image = Image.open(input_buffer, formats=("PNG",))
+        cropped_image = image.crop(image.getbbox())
+        with BytesIO() as output_buffer:
+            cropped_image.save(output_buffer, format="PNG")
+            image_data = output_buffer.getvalue()
+
+    return image_data

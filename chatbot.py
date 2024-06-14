@@ -14,7 +14,6 @@ import yfinance
 import pymupdf
 import pymupdf4llm
 import httpx
-import rembg
 from mattermostdriver.driver import Driver
 from bs4 import BeautifulSoup
 from youtube_transcript_api import YouTubeTranscriptApi
@@ -31,6 +30,7 @@ from helpers import (
     is_valid_url,
     sanitize_username,
     timed_lru_cache,
+    remove_background_from_image,
 )
 from config import *  # pylint: disable=W0401 wildcard-import, unused-wildcard-import
 
@@ -65,7 +65,7 @@ tools = [
         "type": "function",
         "function": {
             "name": "create_custom_emoji_by_url",
-            "description": "Creates a custom emoji from an image URL, optionally - at the user's request - removes the background of the image",
+            "description": "Creates a custom emoji from an image URL, optionally - at the user's request - removes the background of the image. If no emoji name was given, derive a name from the content of the image or use the context",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -166,7 +166,7 @@ driver = Driver(
         "scheme": mattermost_scheme,
         "port": mattermost_port,
         "basepath": mattermost_basepath,
-        "verify": mattermost_cert_verify,
+        "verify": MATTERMOST_CERT_VERIFY,
     }
 )
 
@@ -276,7 +276,7 @@ def handle_custom_emoji_generation(image_url, emoji_name, remove_background, cha
     typing_indicator_thread = None
 
     try:
-        logger.info("Starting Custom emoji generation")
+        logger.info(f"Starting Custom emoji generation for emoji name {emoji_name} and image URL {image_url}")
 
         # Start the typing indicator as this is a new thread
         stop_typing_event, typing_indicator_thread = handle_typing_indicator(driver.client.userid, channel_id, root_id)
@@ -316,10 +316,16 @@ def handle_custom_emoji_generation(image_url, emoji_name, remove_background, cha
 
                 if remove_background:
                     logger.debug(f"Removing background of image from URL {image_url}")
-                    image_data = rembg.remove(image_data)
+                    image_data = remove_background_from_image(image_data)
+                    content_type = "image/png"
 
-                image_data = resize_image_data(image_data, mattermost_max_emoji_image_dimensions, 0.524287)
-                driver.emoji.create_custom_emoji(emoji_name, files={"image": image_data})
+                image_data = resize_image_data(image_data, mattermost_max_emoji_image_dimensions,
+                                               MATTERMOST_MAX_EMOJI_IMAGE_FILE_SIZE, content_type)
+
+                try:
+                    driver.emoji.create_custom_emoji(emoji_name, files={"image": image_data})
+                except Exception as e:
+                    raise Exception(f"Emoji name: {emoji_name}, {str(e)}") from e
 
                 # Send the response back to the Mattermost channel as a reply to the thread or as a new thread
                 driver.posts.create_post(
@@ -376,7 +382,8 @@ def handle_image_generation(prompt, is_raw, channel_id, root_id):
         revised_prompt = response.data[0].revised_prompt
 
         # Decode the base64-encoded image data, resize and compress if necessary
-        decoded_image_data = resize_image_data(base64.b64decode(image_data), mattermost_max_image_dimensions, 10)
+        decoded_image_data = resize_image_data(base64.b64decode(image_data), mattermost_max_image_dimensions, 10,
+                                               AI_MODEL_IMAGE_GENERATION_MIME_TYPE)
 
         file_id = driver.files.upload_file(
             channel_id=channel_id,
@@ -655,7 +662,7 @@ async def raw_html_to_image(raw_html, url):
     finally:
         browser.stop()  # uc.util.deconstruct_browser() but may affect other instances running at the same time?
 
-    return resize_image_data(file_bytes, mattermost_max_image_dimensions, 10)
+    return resize_image_data(file_bytes, mattermost_max_image_dimensions, 10, "image/png")
 
 
 @timed_lru_cache(seconds=7200, maxsize=100)
@@ -743,12 +750,15 @@ def process_message(event_data):
 
     stop_typing_event = None
     typing_indicator_thread = None
+    chatbot_invoked = False
 
     try:
         messages = []
 
         # Chatbot is invoked if it was mentioned, the chatbot has already been invoked in the thread or its a DM
-        if is_chatbot_invoked(post, post_id, root_id, channel_display_name):
+        chatbot_invoked = is_chatbot_invoked(post, post_id, root_id, channel_display_name)
+
+        if chatbot_invoked:
             # Start the typing indicator
             stop_typing_event, typing_indicator_thread = handle_typing_indicator(
                 driver.client.userid, channel_id, root_id
@@ -779,14 +789,14 @@ def process_message(event_data):
                 is_last_message = index == len(thread_messages) - 1
                 if thread_role == "user" and keep_all_url_content or is_last_message:
                     for link in links:
-                        if not is_valid_url(link):
-                            continue
-
                         website_data = {
                             "url": link,
                         }
 
                         try:
+                            if not is_valid_url(link):
+                                raise Exception("Local or invalid link")
+
                             website_data["url_content"], link_image_messages = request_link_content(link)
                             image_messages.extend(link_image_messages)
                         except Exception as e:
@@ -813,14 +823,18 @@ def process_message(event_data):
                 if image_messages:
                     image_messages.append({"type": "text", "text": content})
                     # We force a user role here, as this is an API requirement for images for GPT-4o
-                    messages.append({"name": thread_sender_name, "role": "user", "content": image_messages})
+                    messages.append({"role": "user", "content": image_messages})  # "name": thread_sender_name in front
                 else:
                     messages.append(construct_text_message(thread_sender_name, thread_role, content))
 
             # If the message is not part of a thread, reply to it to create a new thread
             handle_generation(current_message, messages, channel_id, post_id if not root_id else root_id)
     except Exception as e:
-        logger.error(f"Error inner message handler: {str(e)} {traceback.format_exc()}")
+        logger.error(f"Error processing message: {str(e)} {traceback.format_exc()}")
+        if chatbot_invoked:
+            driver.posts.create_post(
+                {"channel_id": channel_id, "message": f"Process message error occurred: {str(e)}", "root_id": root_id}
+            )
     finally:
         get_raw_thread_posts.cache_clear()  # We clear this cache as it won't be useful for the next message with the current implementation
         if stop_typing_event:
@@ -860,7 +874,7 @@ def extract_post_data(post, event_data):
 
 def construct_text_message(name, role, message):
     return {
-        "name": name,
+        # "name": name,
         "role": role,
         "content": [
             {
@@ -962,7 +976,7 @@ def get_file_content(file_details_json):
         if content_type not in compatible_image_content_types:
             raise Exception(f"Unsupported image content type: {content_type}")
         image_data_base64 = base64.b64encode(
-            resize_image_data(file.content, ai_model_max_vision_image_dimensions, 3)
+            resize_image_data(file.content, ai_model_max_vision_image_dimensions, 3, content_type)
         ).decode("utf-8")
 
         image_messages.append(construct_image_content_message(content_type, image_data_base64))
@@ -980,7 +994,7 @@ def extract_pdf_content(stream):
     image_messages = []
 
     with pymupdf.open(None, stream, "pdf") as pdf:
-        pdf_text_content += pymupdf4llm.to_markdown(pdf).strip()
+        pdf_text_content += pymupdf4llm.to_markdown(pdf, margins=0)
 
         for page in pdf:
             # Extract images
@@ -992,7 +1006,8 @@ def extract_pdf_content(stream):
                 if pdf_image_content_type not in compatible_image_content_types:
                     continue
                 pdf_image_data_base64 = base64.b64encode(
-                    resize_image_data(pdf_base_image["image"], ai_model_max_vision_image_dimensions, 3)
+                    resize_image_data(pdf_base_image["image"], ai_model_max_vision_image_dimensions, 3,
+                                      pdf_image_content_type)
                 ).decode("utf-8")
 
                 image_messages.append(construct_image_content_message(pdf_image_content_type, pdf_image_data_base64))
@@ -1203,7 +1218,8 @@ def request_link_image_content(prev_response, content_type):
         if total_size > max_response_size:
             raise Exception("Image size from the website exceeded the maximum limit for the chatbot")
 
-    image_data_base64 = base64.b64encode(resize_image_data(image_data, ai_model_max_vision_image_dimensions, 3)).decode(
+    image_data_base64 = base64.b64encode(
+        resize_image_data(image_data, ai_model_max_vision_image_dimensions, 3, content_type)).decode(
         "utf-8"
     )
     return [construct_image_content_message(content_type, image_data_base64)]
@@ -1250,18 +1266,31 @@ def request_link_pdf_content(prev_response):
 
 def main():
     try:
+        global CHATBOT_USERNAME, CHATBOT_USERNAME_AT, tools
+
+        # Log in to the Mattermost server
+        driver.login()
+
+        CHATBOT_USERNAME = driver.client.username
+        CHATBOT_USERNAME_AT = f"@{CHATBOT_USERNAME}"
+
+        try:
+            driver.emoji.get_emoji_list(params={"page": 1, "per_page": 1})
+        except Exception as e:
+            logger.info("Custom emoji permissions not available, removing custom emoji function from tools.")
+            logger.debug(str(e))
+            tools = [tool for tool in tools if tool["function"]["name"] != "create_custom_emoji_by_url"]
+
         if not os.path.exists(browser_executable_path) or not os.access(browser_executable_path, os.X_OK):
             logger.error(
                 "Chromium binary not found or not executable, removing raw_html_to_image function from tools. This is nothing to worry about if you don't use it."
             )
-            global tools
             tools = [tool for tool in tools if tool["function"]["name"] != "raw_html_to_image"]
 
-        # Log in to the Mattermost server
-        driver.login()
-        global CHATBOT_USERNAME, CHATBOT_USERNAME_AT
-        CHATBOT_USERNAME = driver.client.username
-        CHATBOT_USERNAME_AT = f"@{CHATBOT_USERNAME}"
+        if disable_specific_tool_calls[0]:
+            logger.info(f"Disabling tools: {disable_specific_tool_calls}")
+            for disable_tool in disable_specific_tool_calls:
+                tools = [tool for tool in tools if tool["function"]["name"] != disable_tool]
 
         logger.debug(f"SYSTEM PROMPT: {get_system_instructions()}")
 
