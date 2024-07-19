@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 logger.setLevel(log_level)
 
 REGEX_LOCAL_LINKS = re.compile(
-    r"(?:^|\b)(127\.|192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[0-1])\.|::1|[fF][cCdD]00::|\blocalhost\b)(?:$|\b)",
+    r"(?:^|\b)(127\.|192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[0-1])\.|[fF][cCdD]00::|\blocalhost\b)(?:$|\b)",
     re.IGNORECASE,
 )
 
