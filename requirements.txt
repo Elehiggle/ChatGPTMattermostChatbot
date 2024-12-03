@@ -9,7 +9,7 @@ PyMuPDF>=1.24.5
 yfinance>=0.2.40
 pymupdf4llm>=0.0.5
 defusedxml>=0.7.1
-nodriver>=0.29rc2
+nodriver==0.36  # Pin version to avoid breaking changes with headless mode
 validators>=0.28.3
 rembg>=2.0.57
 tiktoken>=0.7.0
