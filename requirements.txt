@@ -1,16 +1,16 @@
 mattermostdriver>=7.3.2
-certifi>=2024.6.2
-beautifulsoup4>=4.12.3
-pillow>=10.3.0
-httpx>=0.27.0
-youtube-transcript-api>=0.6.2
-yt-dlp>=2024.4.9
-PyMuPDF>=1.24.5
-yfinance>=0.2.40
-pymupdf4llm>=0.0.5
-defusedxml>=0.7.1
+certifi>=2024.8.30
+beautifulsoup4==4.12.3
+pillow==11.0.0
+httpx==0.28.0
+youtube-transcript-api>=0.6.3
+yt-dlp>=2024.12.13
+PyMuPDF==1.24.14
+yfinance>=0.2.50
+pymupdf4llm==0.0.17
+defusedxml==0.7.1
 nodriver==0.36  # Pin version to avoid breaking changes with headless mode
-validators>=0.28.3
-rembg>=2.0.57
-tiktoken>=0.7.0
-openai>=1.31.0
+validators==0.34.0
+rembg==2.0.57  # Pin because it might cause: No module named onnxruntime
+tiktoken==0.8.0
+openai>=1.56.1
