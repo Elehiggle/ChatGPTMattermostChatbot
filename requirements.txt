@@ -11,6 +11,6 @@ pymupdf4llm==0.0.17
 defusedxml==0.7.1
 nodriver==0.36  # Pin version to avoid breaking changes with headless mode
 validators==0.34.0
-rembg==2.0.57  # Pin because it might cause: No module named onnxruntime
+rembg==2.0.60  # Pin because it might cause: No module named onnxruntime
 tiktoken==0.8.0
 openai>=1.56.1
