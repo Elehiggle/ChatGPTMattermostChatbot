@@ -72,6 +72,6 @@ validators<=0.34.0
 webencodings<=0.5.1
 websockets<=13.1  # Pin because of some incompatible changes causing websockets to not be reliable
 wrapt<=1.16.0
-yfinance<=0.2.44
+yfinance<=0.2.50
 youtube-transcript-api>=0.6.3  # Stay on latest
 yt-dlp>=2024.12.3  # Stay on latest
