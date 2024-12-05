@@ -222,6 +222,7 @@ def send_typing_indicator_loop(user_id, channel_id, parent_id, stop_event):
 
 
 def handle_typing_indicator(user_id, channel_id, parent_id):
+    logger.debug("Starting typing indicator")
     stop_typing_event = threading.Event()
     typing_indicator_thread = threading.Thread(
         target=send_typing_indicator_loop,
@@ -265,6 +266,8 @@ def handle_html_image_generation(raw_html_code, url, channel_id, root_id):
             {"channel_id": channel_id, "message": f"HTML Image generation error occurred: {str(e)}", "root_id": root_id}
         )
     finally:
+        logger.debug("Stopping typing indicator")
+
         if stop_typing_event:
             stop_typing_event.set()
         if typing_indicator_thread:
@@ -345,6 +348,8 @@ def handle_custom_emoji_generation(image_url, emoji_name, remove_background, cha
             }
         )
     finally:
+        logger.debug("Stopping typing indicator")
+
         if stop_typing_event:
             stop_typing_event.set()
         if typing_indicator_thread:
@@ -407,6 +412,8 @@ def handle_image_generation(prompt, is_raw, channel_id, root_id):
             {"channel_id": channel_id, "message": f"Image generation error occurred: {str(e)}", "root_id": root_id}
         )
     finally:
+        logger.debug("Stopping typing indicator")
+
         if stop_typing_event:
             stop_typing_event.set()
         if typing_indicator_thread:
@@ -513,6 +520,8 @@ def process_tool_calls(tool_calls, current_message, channel_id, root_id):
 
 
 def handle_text_generation(current_message, messages, channel_id, root_id):
+    start_time = time.time()
+
     # Send the messages to the AI API
     response = ai_client.chat.completions.create(
         model=model,
@@ -524,12 +533,19 @@ def handle_text_generation(current_message, messages, channel_id, root_id):
         tool_choice="auto" if tool_use_enabled else NOT_GIVEN,  # Let model decide to call the function or not
     )
 
+    end_time = time.time()
+    duration = end_time - start_time
+
+    logger.debug(f"AI API response received after {duration:.2f} seconds")
+
     initial_message_response = response.choices[0].message
     prompt_tokens = response.usage.prompt_tokens
     completion_tokens = response.usage.completion_tokens
 
     # Check if tool calls are present in the response
     if initial_message_response.tool_calls:
+        logger.debug("Handling tool calls")
+
         tool_calls = initial_message_response.tool_calls
 
         tool_messages = process_tool_calls(tool_calls, current_message, channel_id, root_id)
@@ -540,6 +556,7 @@ def handle_text_generation(current_message, messages, channel_id, root_id):
             for call in tool_calls
         )
         if image_gen_calls_only:
+            logger.debug("All tool calls were image generation, skipping text generation")
             return
 
         # Remove all image generation tool calls from the message for API compliance, as we handle images differently
@@ -551,6 +568,8 @@ def handle_text_generation(current_message, messages, channel_id, root_id):
 
         # Requery in case there are new messages from function calls
         if tool_messages:
+            logger.debug("Requerying AI API after tool calls")
+
             # Add the initial response to the messages array as it contains infos about tool calls
             messages.append(initial_message_response)
 
@@ -836,6 +855,8 @@ def process_message(event_data):
                 {"channel_id": channel_id, "message": f"Process message error occurred: {str(e)}", "root_id": root_id}
             )
     finally:
+        logger.debug("Clearing cache and stopping typing indicator")
+
         get_raw_thread_posts.cache_clear()  # We clear this cache as it won't be useful for the next message with the current implementation
         if stop_typing_event:
             stop_typing_event.set()
