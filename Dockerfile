@@ -1,14 +1,15 @@
-FROM python:3.12.7-slim
+FROM python:3.12.8-slim-bookworm
 
 WORKDIR /app
 
 COPY . .
 
 # Install Chromium. Those are public API keys that even Debian uses.
+# Specify Debian bookworm because the new Python image somehow grabs the wrong version of Chromium for newer Debian versions, causing dependency problems.
 RUN echo "ttf-mscorefonts-installer msttcorefonts/accepted-mscorefonts-eula select true" | debconf-set-selections && \
-    sed -i -e "s/ main[[:space:]]*\$/ main contrib non-free/" /etc/apt/sources.list.d/debian.sources && \
+    sed -i -e "s/ main[[:space:]]*\$/ main contrib non-free non-free-firmware/" /etc/apt/sources.list.d/debian.sources && \
     apt-get update && \
-    apt-get install -y --no-install-recommends \
+    apt-get install -y --no-install-recommends -t bookworm \
       fontconfig \
       fonts-freefont-ttf \
       fonts-gfs-neohellenic \
