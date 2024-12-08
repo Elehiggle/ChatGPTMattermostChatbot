@@ -167,6 +167,8 @@ driver = Driver(
         "port": mattermost_port,
         "basepath": mattermost_basepath,
         "verify": MATTERMOST_CERT_VERIFY,
+        "timeout": mattermost_timeout,
+        "websocket_kw_args": {"ping_interval": None},
     }
 )
 
