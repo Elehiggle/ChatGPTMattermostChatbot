@@ -14,7 +14,7 @@ import yfinance
 import pymupdf
 import pymupdf4llm
 import httpx
-from mattermostdriver.driver import Driver
+from mattermostdriver_patched import Driver
 from bs4 import BeautifulSoup
 from youtube_transcript_api import YouTubeTranscriptApi
 from yt_dlp import YoutubeDL
@@ -168,7 +168,7 @@ driver = Driver(
         "basepath": mattermost_basepath,
         "verify": MATTERMOST_CERT_VERIFY,
         "timeout": mattermost_timeout,
-        "websocket_kw_args": {"ping_interval": None},
+        # "websocket_kw_args": {"ping_interval": None},
     }
 )
 

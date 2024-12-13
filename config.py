@@ -49,7 +49,7 @@ mattermost_scheme = os.getenv("MATTERMOST_SCHEME", "https")
 mattermost_port = int(os.getenv("MATTERMOST_PORT", "443"))
 mattermost_basepath = os.getenv("MATTERMOST_BASEPATH", "/api/v4")
 
-mattermost_timeout = os.getenv("MATTERMOST_TIMEOUT", "2")
+mattermost_timeout = os.getenv("MATTERMOST_TIMEOUT", "10")
 
 mattermost_timeout = None if mattermost_timeout == "NONE" else int(mattermost_timeout)
 
