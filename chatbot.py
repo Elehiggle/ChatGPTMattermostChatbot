@@ -1322,7 +1322,7 @@ def main():
                 # Initialize the WebSocket connection
                 driver.init_websocket(message_handler)
             except Exception as e:
-                logger.error(f"Error initializing WebSocket: {str(e)} {traceback.format_exc()}")
+                logger.error(f"Error with WebSocket: {str(e)} {traceback.format_exc()}")
             time.sleep(2)
 
     except KeyboardInterrupt:

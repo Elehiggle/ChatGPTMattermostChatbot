@@ -1,4 +1,4 @@
-aiohttp<=3.9.5
+aiohttp<=3.11.10
 mattermostdriver>=7.3.2  # Stay on latest
 certifi>=2024.8.30  # Stay on latest
 beautifulsoup4<=4.12.3

@@ -10,6 +10,9 @@ logger.setLevel(log_level)
 
 
 class PatchedWebsocket:
+    """
+    Simple class to override outdated mattermostdriver's websocket class, as its causing reconnection issues
+    """
     heartbeat: int = 5
     keepalive_delay: float = 5
 
@@ -25,14 +28,14 @@ class PatchedWebsocket:
         logger.info("Connecting websocket")
         scheme = "wss://" if self.options.get("scheme", "https") == "https" else "ws://"
         url = f"{scheme}{self.options['url']}:{self.options['port']}{self.options['basepath']}/websocket"
+        kw_args = {}
+        if self.options["websocket_kw_args"] is not None:
+            kw_args = self.options["websocket_kw_args"]
+        proxy = self.options.get("proxy", None)
         self._alive = True
         while self._alive:
             try:
                 async with aiohttp.ClientSession() as session:
-                    kw_args = {}
-                    if self.options["websocket_kw_args"] is not None:
-                        kw_args = self.options["websocket_kw_args"]
-                    proxy = self.options.get("proxy", None)
                     async with session.ws_connect(
                             url,
                             heartbeat=self.heartbeat,

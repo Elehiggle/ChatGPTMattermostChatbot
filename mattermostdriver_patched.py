@@ -16,6 +16,5 @@ import mattermostdriver.driver  # noqa: E402
 
 mattermostdriver.driver.Websocket = PatchedWebsocket
 
+# Important line for patching
 from mattermostdriver.driver import Driver  # noqa: E402
-
-Driver = Driver
