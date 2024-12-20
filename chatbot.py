@@ -1256,7 +1256,9 @@ def request_link_content(link):
     with httpx.Client() as client:
         # By doing the redirect itself, we might already allow a local request?
         with client.stream("GET", link, timeout=4, follow_redirects=True) as response:
-            response.raise_for_status()
+            # Raise for bad status codes if we don't have a FlareSolverr endpoint, this can cause issues though if the requested content is not text
+            if not flaresolverr_endpoint:
+                response.raise_for_status()
 
             final_url = str(response.url)
 
