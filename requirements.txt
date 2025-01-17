@@ -15,4 +15,4 @@ validators>=0.34.0  # Stay on latest
 rembg<=2.0.57  # Pin because it causes: No module named onnxruntime
 websockets<=13.1  # Pin because of some incompatible changes with nodriver after 0.36? Maybe not required
 tiktoken>=0.8.0  # Stay on latest
-openai>=1.57.0  # Stay on latest
+openai>=1.59.7  # Stay on latest

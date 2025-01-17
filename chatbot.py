@@ -186,9 +186,8 @@ model_encoder = tiktoken.encoding_for_model("gpt-4o")
 thread_pool = concurrent.futures.ThreadPoolExecutor(max_workers=5)
 
 
-def get_system_instructions():
-    current_time = datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
-    return system_prompt_unformatted.format(current_time=current_time, CHATBOT_USERNAME=CHATBOT_USERNAME)
+def get_system_instructions(initial_time):
+    return system_prompt_unformatted.format(current_time=initial_time, CHATBOT_USERNAME=CHATBOT_USERNAME)
 
 
 @lru_cache(maxsize=1000)
@@ -521,14 +520,16 @@ def process_tool_calls(tool_calls, current_message, channel_id, root_id):
     return tool_messages
 
 
-def handle_text_generation(current_message, messages, channel_id, root_id):
+def handle_text_generation(current_message, messages, channel_id, root_id, initial_time):
     start_time = time.time()
+
+    system_instructions = get_system_instructions(initial_time)
 
     # Send the messages to the AI API
     response = ai_client.chat.completions.create(
         model=model,
         max_tokens=max_tokens,
-        messages=[{"role": "system", "content": get_system_instructions()}, *messages],
+        messages=[{"role": "developer", "content": system_instructions}, *messages],
         timeout=timeout,
         temperature=temperature,
         tools=tools if tool_use_enabled else NOT_GIVEN,
@@ -542,6 +543,7 @@ def handle_text_generation(current_message, messages, channel_id, root_id):
 
     initial_message_response = response.choices[0].message
     prompt_tokens = response.usage.prompt_tokens
+    cached_prompt_tokens = response.usage.prompt_tokens_details.cached_tokens
     completion_tokens = response.usage.completion_tokens
 
     # Check if tool calls are present in the response
@@ -580,7 +582,7 @@ def handle_text_generation(current_message, messages, channel_id, root_id):
             response = ai_client.chat.completions.create(
                 model=model,
                 max_tokens=max_tokens,
-                messages=[{"role": "system", "content": get_system_instructions()}, *messages],
+                messages=[{"role": "system", "content": system_instructions}, *messages],
                 timeout=timeout,
                 temperature=temperature,
                 tools=tools,
@@ -588,6 +590,7 @@ def handle_text_generation(current_message, messages, channel_id, root_id):
             )
 
             prompt_tokens += response.usage.prompt_tokens
+            cached_prompt_tokens = response.usage.prompt_tokens_details.cached_tokens
             completion_tokens += response.usage.completion_tokens
 
     response_text = response.choices[0].message.content
@@ -607,18 +610,18 @@ def handle_text_generation(current_message, messages, channel_id, root_id):
         # Send the API response back to the Mattermost channel as a reply to the thread or as a new thread
         driver.posts.create_post({"channel_id": channel_id, "message": part, "root_id": root_id})
 
-    prompt_tokens_cost = 5 / 1_000_000 * prompt_tokens
-    completion_tokens_cost = 15 / 1_000_000 * completion_tokens
+    prompt_tokens_cost = 2.5 / 1_000_000 * prompt_tokens - 1.25 * cached_prompt_tokens
+    completion_tokens_cost = 10 / 1_000_000 * completion_tokens
     tokens_cost_total = prompt_tokens_cost + completion_tokens_cost
     logger.debug(
-        f"Text Token cost: ${tokens_cost_total:.4f} | Input ${prompt_tokens_cost:.4f} ({prompt_tokens}) + Output ${completion_tokens_cost:.4f} ({completion_tokens})"
+        f"Text Token cost: ${tokens_cost_total:.4f} | Input ${prompt_tokens_cost:.4f} ({prompt_tokens}, cached: {cached_prompt_tokens}) + Output ${completion_tokens_cost:.4f} ({completion_tokens})"
     )
 
 
-def handle_generation(current_message, messages, channel_id, root_id):
+def handle_generation(current_message, messages, channel_id, root_id, initial_time):
     try:
         logger.info("Querying AI API")
-        handle_text_generation(current_message, messages, channel_id, root_id)
+        handle_text_generation(current_message, messages, channel_id, root_id, initial_time)
     except Exception as e:
         logger.error(f"Text generation error: {str(e)} {traceback.format_exc()}")
         driver.posts.create_post(
@@ -790,10 +793,17 @@ def process_message(event_data):
 
             if root_id:
                 thread_messages = get_thread_posts(root_id, post_id)
-
-            # If we don't have any thread, add our own message to the array
-            if not root_id:
+                root_post = driver.posts.get_post(root_id)
+                posted_at = root_post["create_at"]
+            else:
+                # If we don't have any thread, add our own message to the array
                 thread_messages.append((post, sender_name, "user", current_message))
+                posted_at = post["create_at"]
+
+            current_time_utc = datetime.datetime.now(datetime.UTC)
+            post_time_utc = datetime.datetime.fromtimestamp(posted_at / 1000.0, tz=datetime.UTC)
+            initial_time = min(current_time_utc, post_time_utc).strftime("%Y-%m-%d %H:%M:%S.%f")[
+                           :-3]  # Gets the UTC time of the root post
 
             for index, thread_message in enumerate(thread_messages):
                 content = {}
@@ -849,7 +859,7 @@ def process_message(event_data):
                     messages.append(construct_text_message(thread_sender_name, thread_role, content))
 
             # If the message is not part of a thread, reply to it to create a new thread
-            handle_generation(current_message, messages, channel_id, post_id if not root_id else root_id)
+            handle_generation(current_message, messages, channel_id, post_id if not root_id else root_id, initial_time)
     except Exception as e:
         logger.error(f"Error processing message: {str(e)} {traceback.format_exc()}")
         if chatbot_invoked:
@@ -1317,7 +1327,8 @@ def main():
             for disable_tool in disable_specific_tool_calls:
                 tools = [tool for tool in tools if tool["function"]["name"] != disable_tool]
 
-        logger.debug(f"SYSTEM PROMPT: {get_system_instructions()}")
+        logger.debug(
+            f"SYSTEM PROMPT: {get_system_instructions(datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3])}")
 
         while True:
             try:

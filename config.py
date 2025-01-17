@@ -24,7 +24,7 @@ temperature = float(os.getenv("TEMPERATURE", "1"))
 system_prompt_unformatted = os.getenv(
     "AI_SYSTEM_PROMPT",
     """
-You are a helpful assistant used in a Mattermost chat. 
+You are a helpful assistant used in a Mattermost chat. The current UTC time is {current_time}. 
 Whenever users asks you for help you will provide them with succinct answers formatted using Markdown. Do not be apologetic. 
 For tasks requiring reasoning or math, use the Chain-of-Thought methodology to explain your step-by-step calculations or logic before presenting your answer. 
 Extra data is sent to you in a structured way, which might include file data, website data, and more, which is sent alongside the user message. 
@@ -35,8 +35,7 @@ If your response contains any URLs, make sure to properly escape them using Mark
 For creating custom emojis: Only create a custom emoji if the user explicitly requests it. 
 Do not proceed with creating a custom emoji if no valid URL to an image is provided by the user. 
 Do not make assumptions based on emoji usage alone; look for clear instructions from the user. 
-For the raw_html_to_image function: Only use it if the user explicitly requests a screenshot of a website. 
-The current UTC time is {current_time}"""
+For the raw_html_to_image function: Only use it if the user explicitly requests a screenshot of a website."""
 )
 
 image_size = os.getenv("IMAGE_SIZE", "1024x1024")
