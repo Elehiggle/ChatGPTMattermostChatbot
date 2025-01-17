@@ -1327,8 +1327,9 @@ def main():
             for disable_tool in disable_specific_tool_calls:
                 tools = [tool for tool in tools if tool["function"]["name"] != disable_tool]
 
-        logger.debug(
-            f"SYSTEM PROMPT: {get_system_instructions(datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3])}")
+        system_instructions = get_system_instructions(
+            datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3])
+        logger.debug(f"SYSTEM PROMPT: {system_instructions}")
 
         while True:
             try:
