@@ -13,6 +13,6 @@ defusedxml<=0.7.1
 nodriver<=0.36  # Pin version <= 0.36 to avoid breaking changes with headless mode
 validators>=0.34.0  # Stay on latest
 rembg<=2.0.57  # Pin because it causes: No module named onnxruntime
-websockets<=13.1  # Pin because of some incompatible changes with nodriver after 0.36? Maybe not required
+websockets<=14.2  # Pin because of some incompatible changes with nodriver after 0.36? Maybe not required
 tiktoken>=0.8.0  # Stay on latest
 openai>=1.59.7  # Stay on latest
