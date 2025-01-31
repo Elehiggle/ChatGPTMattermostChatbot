@@ -610,7 +610,7 @@ def handle_text_generation(current_message, messages, channel_id, root_id, initi
         # Send the API response back to the Mattermost channel as a reply to the thread or as a new thread
         driver.posts.create_post({"channel_id": channel_id, "message": part, "root_id": root_id})
 
-    prompt_tokens_cost = 2.5 / 1_000_000 * prompt_tokens - 1.25 * cached_prompt_tokens
+    prompt_tokens_cost = 2.5 / 1_000_000 * prompt_tokens - 1.25 / 1_000_000 * cached_prompt_tokens
     completion_tokens_cost = 10 / 1_000_000 * completion_tokens
     tokens_cost_total = prompt_tokens_cost + completion_tokens_cost
     logger.debug(

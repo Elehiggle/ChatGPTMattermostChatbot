@@ -183,6 +183,10 @@ Please note that the monkey patch in the code is necessary due to some SSL error
 
 [Anthropic Claude 3 Mattermost Chatbot](https://github.com/Elehiggle/Claude3MattermostChatbot)
 
+[OpenAI o1 Mattermost Chatbot](https://github.com/Elehiggle/OpenAIo1MattermostChatbot)
+
+[DeepSeek Mattermost Chatbot](https://github.com/Elehiggle/DeepSeekMattermostChatbot)
+
 ## Contributing
 
 Contributions are welcome! If you find any issues or have suggestions for improvements, please open an issue or submit a pull request.
