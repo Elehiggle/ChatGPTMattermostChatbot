@@ -529,7 +529,7 @@ def handle_text_generation(current_message, messages, channel_id, root_id, initi
     response = ai_client.chat.completions.create(
         model=model,
         max_tokens=max_tokens,
-        messages=[{"role": "developer", "content": system_instructions}, *messages],
+        messages=[{"role": "system", "content": system_instructions}, *messages],
         timeout=timeout,
         temperature=temperature,
         tools=tools if tool_use_enabled else NOT_GIVEN,
@@ -587,6 +587,7 @@ def handle_text_generation(current_message, messages, channel_id, root_id, initi
                 temperature=temperature,
                 tools=tools,
                 tool_choice="none",
+                # may break some caching, but I think it was required so that it would not try to use tools again
             )
 
             prompt_tokens += response.usage.prompt_tokens
@@ -1299,45 +1300,130 @@ def request_link_pdf_content(prev_response):
     return extract_pdf_content(pdf_data)
 
 
-def main():
-    try:
-        global CHATBOT_USERNAME, CHATBOT_USERNAME_AT, tools
+FETCH_INTERVAL = 0.25
+CHANNEL_REFRESH_INTERVAL = 20
 
-        # Log in to the Mattermost server
-        driver.login()
 
-        CHATBOT_USERNAME = driver.client.username
-        CHATBOT_USERNAME_AT = f"@{CHATBOT_USERNAME}"
+def setup_driver():
+    """Logs in and sets global chatbot identifiers."""
+    driver.login()
+    global CHATBOT_USERNAME, CHATBOT_USERNAME_AT
+    CHATBOT_USERNAME = driver.client.username
+    CHATBOT_USERNAME_AT = f"@{CHATBOT_USERNAME}"
 
-        try:
-            driver.emoji.get_emoji_list(params={"page": 1, "per_page": 1})
-        except Exception as e:
-            logger.info("Custom emoji permissions not available, removing custom emoji function from tools.")
-            logger.debug(str(e))
-            tools = [tool for tool in tools if tool["function"]["name"] != "create_custom_emoji_by_url"]
 
-        if not os.path.exists(browser_executable_path) or not os.access(browser_executable_path, os.X_OK):
-            logger.error(
-                "Chromium binary not found or not executable, removing raw_html_to_image function from tools. This is nothing to worry about if you don't use it."
+def get_channel_ids(team_id):
+    """
+    Fetches and returns channel IDs for the given team ID.
+    Raises an exception if no channels are found or the user is not part of any team.
+    """
+    channels = driver.channels.get_channels_for_user("me", team_id)
+    if not channels:
+        raise ValueError("No channels found for this user or team.")
+    return [c["id"] for c in channels]
+
+
+def refresh_channels(last_post_timestamps, startup_time):
+    """
+    Refreshes channel IDs every CHANNEL_REFRESH_INTERVAL seconds and updates
+    the last_post_timestamps dict if a new channel is detected.
+    Returns the updated list of channel IDs.
+    """
+    team = driver.teams.get_user_teams("me")
+    if not team or not team[0].get("id"):
+        logger.error("This user is not part of any team, exiting.")
+        raise ValueError("User not in any team.")
+    team_id = team[0].get("id")
+
+    channel_ids = get_channel_ids(team_id)
+    for cid in channel_ids:
+        if cid not in last_post_timestamps:
+            last_post_timestamps[cid] = startup_time
+    return channel_ids
+
+
+def fetch_and_process_posts(channel_ids, startup_time, last_post_timestamps):
+    """
+    Polls all channels, retrieves new posts, and calls process_message for each new post.
+    """
+    for cid in channel_ids:
+        # Get channel info for display name
+        channel_info = driver.channels.get_channel(cid)
+        channel_display_name = channel_info.get('display_name', '')
+
+        # If it's a direct channel, format it as @username
+        if channel_info.get('type') == 'D':
+            # Get the other user's ID (not the bot)
+            other_user_id = next(
+                uid for uid in channel_info['name'].split('__')
+                if uid != driver.client.userid
             )
-            tools = [tool for tool in tools if tool["function"]["name"] != "raw_html_to_image"]
+            other_user = driver.users.get_user(other_user_id)
+            channel_display_name = f"@{other_user['username']}"
 
-        if disable_specific_tool_calls[0]:
-            logger.info(f"Disabling tools: {disable_specific_tool_calls}")
-            for disable_tool in disable_specific_tool_calls:
-                tools = [tool for tool in tools if tool["function"]["name"] != disable_tool]
+        posts_data = driver.posts.get_posts_for_channel(cid)
+        posts = posts_data.get("posts", {})
+        if not posts:
+            continue
 
-        system_instructions = get_system_instructions(
-            datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3])
-        logger.debug(f"SYSTEM PROMPT: {system_instructions}")
+        sorted_posts = sorted(posts.values(), key=lambda x: x["create_at"])
+        for post in sorted_posts:
+            create_time = datetime.datetime.fromtimestamp(
+                post["create_at"] / 1000.0, tz=datetime.UTC
+            )
+            if create_time > last_post_timestamps[cid] and create_time > startup_time:
+                last_post_timestamps[cid] = create_time
+
+                # Get sender name
+                sender_name = get_username_from_user_id(post["user_id"])
+
+                # Construct complete event data
+                event_data = {
+                    "event": "posted",
+                    "data": {
+                        "channel_display_name": channel_display_name,
+                        "channel_name": channel_info['name'],
+                        "channel_type": channel_info['type'],
+                        "post": json.dumps(post),
+                        "sender_name": sender_name,
+                        "team_id": channel_info.get('team_id', ''),
+                    }
+                }
+
+                logger.debug(f"New post at {create_time.isoformat()}: {event_data}")
+                process_message(event_data)
+
+
+def main():
+    """
+    Main entry point. Logs in, sets up driver, runs polling loop to fetch new posts.
+    """
+    try:
+        setup_driver()
+
+        startup_time = datetime.datetime.now(datetime.UTC)
+        last_post_timestamps = {}
+        next_channel_refresh = time.time()
+        channel_ids = []
+
+        print("Startup COMPLETE")
 
         while True:
-            try:
-                # Initialize the WebSocket connection
-                driver.init_websocket(message_handler)
-            except Exception as e:
-                logger.error(f"Error with WebSocket: {str(e)} {traceback.format_exc()}")
-            time.sleep(2)
+            if time.time() >= next_channel_refresh:
+                next_channel_refresh = time.time() + CHANNEL_REFRESH_INTERVAL
+                channel_ids = refresh_channels(
+                    last_post_timestamps, startup_time
+                )
+
+            print("Fetching")
+
+            fetch_and_process_posts(
+                channel_ids, startup_time, last_post_timestamps
+            )
+
+            print("Fetch done")
+
+            time.sleep(FETCH_INTERVAL)
 
     except KeyboardInterrupt:
         logger.info("KeyboardInterrupt, logout and exit")
