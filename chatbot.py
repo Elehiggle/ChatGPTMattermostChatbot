@@ -529,7 +529,7 @@ def handle_text_generation(current_message, messages, channel_id, root_id, initi
     response = ai_client.chat.completions.create(
         model=model,
         max_tokens=max_tokens,
-        messages=[{"role": "developer", "content": system_instructions}, *messages],
+        messages=[{"role": "system", "content": system_instructions}, *messages],
         timeout=timeout,
         temperature=temperature,
         tools=tools if tool_use_enabled else NOT_GIVEN,

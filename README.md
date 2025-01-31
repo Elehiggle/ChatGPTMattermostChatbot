@@ -10,7 +10,10 @@
 
 ![Mattermost chat with bot example](./chat.png)
 
-This project is a chatbot for Mattermost that integrates with the OpenAI API to provide helpful responses to user messages. The chatbot - like this readme - is mostly written by **Claude 3 AI**, listens for messages mentioning the chatbot or direct messages, processes the messages, and sends the responses back to the Mattermost channel.
+This project is a chatbot for Mattermost that integrates with the OpenAI API to provide helpful responses to user
+messages. The chatbot - like this readme - is mostly written by **Claude 3 AI**, listens for messages mentioning the
+chatbot or direct messages, processes the messages, and sends the responses back to the Mattermost channel. Also
+compatible with models o3-mini and possibly o1 (non-preview).
 
 ## Features
 
