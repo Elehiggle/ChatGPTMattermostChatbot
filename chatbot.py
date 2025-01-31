@@ -233,7 +233,7 @@ def handle_typing_indicator(user_id, channel_id, parent_id):
     return stop_typing_event, typing_indicator_thread
 
 
-# maybe use general handle generation function that does typing stuff etc so we can save some code
+# aaa maybe use general handle generation function that does typing stuff etc so we can save some code
 def handle_html_image_generation(raw_html_code, url, channel_id, root_id):
     stop_typing_event = None
     typing_indicator_thread = None
