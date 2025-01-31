@@ -525,15 +525,20 @@ def handle_text_generation(current_message, messages, channel_id, root_id, initi
 
     system_instructions = get_system_instructions(initial_time)
 
+    # Determine the max tokens parameter based on the model name, as OpenAI reasoning models expect a different parameter and are not compatible.
+    # Other OpenAI models are compatible with the newer parameter, but not many - if any - third party AI endpoints.
+    max_tokens_param = {"max_completion_tokens": max_tokens} if "o1" in model or "o3" in model else {
+        "max_tokens": max_tokens}
+
     # Send the messages to the AI API
     response = ai_client.chat.completions.create(
         model=model,
-        max_tokens=max_tokens,
         messages=[{"role": "system", "content": system_instructions}, *messages],
         timeout=timeout,
         temperature=temperature,
         tools=tools if tool_use_enabled else NOT_GIVEN,
         tool_choice="auto" if tool_use_enabled else NOT_GIVEN,  # Let model decide to call the function or not
+        **max_tokens_param
     )
 
     end_time = time.time()
@@ -581,12 +586,12 @@ def handle_text_generation(current_message, messages, channel_id, root_id, initi
 
             response = ai_client.chat.completions.create(
                 model=model,
-                max_tokens=max_tokens,
                 messages=[{"role": "system", "content": system_instructions}, *messages],
                 timeout=timeout,
                 temperature=temperature,
                 tools=tools,
                 tool_choice="none",
+                **max_tokens_param
             )
 
             prompt_tokens += response.usage.prompt_tokens

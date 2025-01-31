@@ -19,7 +19,7 @@ api_key = os.environ["AI_API_KEY"]
 model = os.getenv("AI_MODEL", "gpt-4o")
 ai_api_baseurl = os.getenv("AI_API_BASEURL", None)
 timeout = int(os.getenv("AI_TIMEOUT", "120"))
-max_tokens = int(os.getenv("MAX_TOKENS", "4096"))
+max_tokens = int(os.getenv("MAX_TOKENS", "24576"))
 temperature = float(os.getenv("TEMPERATURE", "1"))
 system_prompt_unformatted = os.getenv(
     "AI_SYSTEM_PROMPT",
