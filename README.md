@@ -84,7 +84,7 @@ compatible with models o3-mini and possibly o1 (non-preview).
 |-------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `AI_SYSTEM_PROMPT`            | The system prompt/instructions. Default: [click](https://github.com/Elehiggle/ChatGPTMattermostChatbot/blob/8b2917232d17ccd06fdb56af29758670422c822b/config.py#L27) (Subject to change. current_time and CHATBOT_USERNAME variables inside the prompt will be auto-formatted and substituted. |
 | `AI_TIMEOUT`                  | The timeout for the AI API call in seconds. Default: "120"                                                                                                                                                                                                                                    |
-| `MAX_TOKENS`                  | The maximum number of tokens to generate in the response. For o1/o3 or other reasoning models, MAX_COMPLETION_TOKENS will be set to your configured value. Default: "24576"                                                                                                                   |
+| `MAX_TOKENS`                  | The maximum number of tokens to generate in the response. For o1/o3 or other reasoning models, MAX_COMPLETION_TOKENS will be set to your configured value. Default: "16384"                                                                                                                   |
 | `TEMPERATURE`                 | The temperature value for controlling the randomness of the generated responses (0.0 = analytical, 1.0 = fully random). Default: "1"                                                                                                                                                          |
 | `IMAGE_SIZE`                  | The image size for image generation. Default: "1024x1024" (see [docs](https://platform.openai.com/docs/guides/images/usage?context=node) for allowed types)                                                                                                                                   |
 | `IMAGE_QUALITY`               | The image quality for image generation. Default: "standard" (also: "hd")                                                                                                                                                                                                                      |
@@ -130,7 +130,7 @@ docker run -d --name chatbotgpt \
   -e AI_MODEL="gpt-4o" \
   -e MATTERMOST_URL="mattermostinstance.example.com" \
   -e MATTERMOST_TOKEN="your_mattermost_token" \
-  -e MAX_TOKENS="24576" \
+  -e MAX_TOKENS="16384" \
   -e TEMPERATURE="1" \
   ghcr.io/elehiggle/chatgptmattermostchatbot:latest
 ```
