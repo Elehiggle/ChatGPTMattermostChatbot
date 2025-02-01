@@ -285,6 +285,6 @@ def is_model_supporting_vision(model):
 
 def is_model_requiring_new_max_tokens_parameter(model):
     if model.startswith("o1") or model.startswith("o3"):
-        return False
+        return True
 
-    return True
+    return False
