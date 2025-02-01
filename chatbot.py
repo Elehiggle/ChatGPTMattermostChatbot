@@ -31,6 +31,8 @@ from helpers import (
     sanitize_username,
     timed_lru_cache,
     remove_background_from_image,
+    is_model_requiring_new_max_tokens_parameter,
+    is_model_supporting_vision
 )
 from config import *  # pylint: disable=W0401 wildcard-import, unused-wildcard-import
 
@@ -527,7 +529,8 @@ def handle_text_generation(current_message, messages, channel_id, root_id, initi
 
     # Determine the max tokens parameter based on the model name, as OpenAI reasoning models expect a different parameter and are not compatible.
     # Other OpenAI models are compatible with the newer parameter, but not many - if any - third party AI endpoints.
-    max_tokens_param = {"max_completion_tokens": max_tokens} if "o1" in model or "o3" in model else {
+    max_tokens_param = {"max_completion_tokens": max_tokens} if is_model_requiring_new_max_tokens_parameter(
+        model) else {
         "max_tokens": max_tokens}
 
     # Send the messages to the AI API
@@ -1011,6 +1014,9 @@ def get_file_content(file_details_json):
 
     file = driver.files.get_file(file_id)
     if content_type.startswith("image/"):
+        if not is_model_supporting_vision(model):
+            raise Exception("Image content is not supported for this model")
+
         if content_type not in compatible_image_content_types:
             raise Exception(f"Unsupported image content type: {content_type}")
         image_data_base64 = base64.b64encode(
@@ -1034,21 +1040,23 @@ def extract_pdf_content(stream):
     with pymupdf.open(None, stream, "pdf") as pdf:
         pdf_text_content += pymupdf4llm.to_markdown(pdf, margins=0)
 
-        for page in pdf:
-            # Extract images
-            for img in page.get_images():
-                xref = img[0]
-                pdf_base_image = pdf.extract_image(xref)
-                pdf_image_extension = pdf_base_image["ext"]
-                pdf_image_content_type = f"image/{pdf_image_extension}"
-                if pdf_image_content_type not in compatible_image_content_types:
-                    continue
-                pdf_image_data_base64 = base64.b64encode(
-                    resize_image_data(pdf_base_image["image"], ai_model_max_vision_image_dimensions, 3,
-                                      pdf_image_content_type)
-                ).decode("utf-8")
+        if is_model_supporting_vision(model):
+            for page in pdf:
+                # Extract images
+                for img in page.get_images():
+                    xref = img[0]
+                    pdf_base_image = pdf.extract_image(xref)
+                    pdf_image_extension = pdf_base_image["ext"]
+                    pdf_image_content_type = f"image/{pdf_image_extension}"
+                    if pdf_image_content_type not in compatible_image_content_types:
+                        continue
+                    pdf_image_data_base64 = base64.b64encode(
+                        resize_image_data(pdf_base_image["image"], ai_model_max_vision_image_dimensions, 3,
+                                          pdf_image_content_type)
+                    ).decode("utf-8")
 
-                image_messages.append(construct_image_content_message(pdf_image_content_type, pdf_image_data_base64))
+                    image_messages.append(
+                        construct_image_content_message(pdf_image_content_type, pdf_image_data_base64))
 
     return pdf_text_content, image_messages
 
@@ -1283,6 +1291,9 @@ def request_link_content(link):
 
             content_type = response.headers.get("content-type", "").lower()
             if "image/" in content_type:
+                if not is_model_supporting_vision(model):
+                    raise Exception("Image content is not supported for this model")
+
                 return "", request_link_image_content(response, content_type)
 
             if "application/pdf" in content_type:

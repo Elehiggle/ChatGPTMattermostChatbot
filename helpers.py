@@ -274,3 +274,17 @@ def remove_background_from_image(image_data):
             image_data = output_buffer.getvalue()
 
     return image_data
+
+
+def is_model_supporting_vision(model):
+    if model.startswith("o1-preview") or model.startswith("o1-mini") or model.startswith("o3-mini"):
+        return False
+
+    return True
+
+
+def is_model_requiring_new_max_tokens_parameter(model):
+    if model.startswith("o1") or model.startswith("o3"):
+        return False
+
+    return True
