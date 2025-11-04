@@ -8,7 +8,6 @@ import concurrent.futures
 import base64
 import tempfile
 import asyncio
-import aiohttp  # Must be explicitly imported to catch its errors
 from functools import lru_cache
 from defusedxml import ElementTree
 import yfinance
