@@ -555,7 +555,8 @@ def handle_text_generation(current_message, messages, channel_id, root_id, initi
 
     initial_message_response = response.choices[0].message
     prompt_tokens = response.usage.prompt_tokens
-    cached_prompt_tokens = response.usage.prompt_tokens_details.cached_tokens
+    prompt_details = getattr(response.usage, 'prompt_tokens_details', None)
+    cached_prompt_tokens = getattr(prompt_details, 'cached_tokens', 0)
     completion_tokens = response.usage.completion_tokens
 
     # Check if tool calls are present in the response
