@@ -8,6 +8,26 @@
 
 # ChatGPTMattermostChatbot
 
+> [!WARNING]
+> **Archived and unmaintained — October 25, 2026**
+>
+> This project is no longer maintained. No further bug fixes, dependency updates, security patches, or support will be provided.
+>
+> GitHub Dependabot reports unresolved dependency vulnerabilities, including a critical-severity alert. **Do not deploy this project or its existing container images.** Migrate or retire existing installations.
+
+## Alternatives
+
+- **[Mattermost Agents](https://github.com/mattermost/mattermost-plugin-agents)** — the official Mattermost AI integration, formerly Copilot. Supports OpenAI, Anthropic, and OpenAI-compatible providers. Requires administrator configuration; check [server compatibility in the releases](https://github.com/mattermost/mattermost-plugin-agents/releases) and [license/feature requirements](https://docs.mattermost.com/administration-guide/configure/agents-admin-guide). See the [provider guide](https://docs.mattermost.com/agents/docs/providers).
+- **[nanobot](https://github.com/HKUDS/nanobot)** — a standalone, self-hosted Python agent with a [built-in Mattermost integration](https://github.com/HKUDS/nanobot/blob/main/docs/guides/mattermost-ai-agent.md) and [OpenAI, Anthropic, and DeepSeek providers](https://github.com/HKUDS/nanobot/blob/main/docs/providers.md). Review its file/shell tool permissions and Mattermost access controls before deployment.
+
+For this OpenAI-based bot, review the OpenAI provider configuration in either alternative and select a currently supported model.
+
+These are migration options, not drop-in replacements. Migration requires new configuration. Feature parity, including URL extraction, YouTube transcripts, image generation, or custom emoji support, is not guaranteed.
+
+The documentation below is retained for historical reference, not as current deployment guidance.
+
+---
+
 ![Mattermost chat with bot example](./chat.png)
 
 This project is a chatbot for Mattermost that integrates with the OpenAI API to provide helpful responses to user
@@ -150,37 +170,21 @@ any modification by the API.
 The bot will take an image URL, optionally remove the background, and create a custom emoji on the Mattermost server
 with a provided or generated name.
 
-## How does this bot differ from the official Mattermost AI plugin?
+## Migration notes
 
-The official [Mattermost AI plugin](https://github.com/mattermost/mattermost-plugin-ai) is a great way to integrate AI
-into your Mattermost server with its own advantages, like a nice UI.
-However, the features differ greatly. It requires direct access to the server, whereas this bot merely needs a bot token
-and can be conveniently used in a Docker environment.
-
-Also there is:
-
-- no fine granular control over certain settings (especially AI settings)
-- no CAPTCHA bypass
-- no image generation
-- no Vision API
-- no PDF parsing
-- no YouTube transcript fetching
-- and more
-
-While the official plugin certainly will improve over time, this bot here will too and there will be certain features
-that will absolutely never make it into the official plugin, due to it primarily focusing on features for developers
-like function calling to retrieve GitHub issues, for example.
+This retired bot ran as a separate process using a Mattermost token. Mattermost Agents is a server plugin, while nanobot runs separately. See [Alternatives](#alternatives) for current setup documentation; historical feature comparisons with the official plugin are no longer maintained.
 
 ## Known Issues
 
-While the chatbot works great for me, there might still be some bugs lurking inside. I have done my best to address
-them, but if you encounter any issues, please let me know!
+Unresolved dependency security alerts remain. This archived project receives no fixes or support. See the warning above before using any historical code or container image.
 
 ## Monkey Patch
 
 Please note that the monkey patch in the code is necessary due to some SSL errors that occur because of a mistake within the `mattermostdriver` library. The patch ensures that the chatbot can establish a secure connection with the Mattermost server.
 
-## Related Projects
+## Related archived projects
+
+These sibling projects are also archived and are not migration targets.
 
 [Anthropic Claude 3 Mattermost Chatbot](https://github.com/Elehiggle/Claude3MattermostChatbot)
 
@@ -190,7 +194,7 @@ Please note that the monkey patch in the code is necessary due to some SSL error
 
 ## Contributing
 
-Contributions are welcome! If you find any issues or have suggestions for improvements, please open an issue or submit a pull request.
+This repository is archived and no longer accepts issues or pull requests. The code remains available under the existing license for historical reference or independent forks; any fork requires its own maintenance and security review.
 
 ## License
 
